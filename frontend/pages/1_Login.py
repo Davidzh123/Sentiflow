@@ -4,6 +4,10 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 from components.api import login, register, get_me
 
+# Rediriger si déjà connecté
+if st.session_state.get("token"):
+    st.switch_page("pages/2_Dashboard.py")
+
 st.title("🔐 Connexion")
 
 tab1, tab2 = st.tabs(["Connexion", "Inscription"])
@@ -20,7 +24,7 @@ with tab1:
                 st.session_state.token = result["access_token"]
                 st.session_state.user = get_me()
                 st.success(message)
-                st.switch_page("pages/2_📊_Dashboard.py")
+                st.switch_page("pages/2_Dashboard.py")
             else:
                 st.error(message)
 
