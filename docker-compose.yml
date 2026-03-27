@@ -34,6 +34,9 @@ services:
       dockerfile: backend/Dockerfile
     ports:
       - "8000:8000"
+    volumes:
+      - ./backend:/app/backend
+      - ./services:/app/services
     environment:
       - DATABASE_URL=postgresql://sentiflow:sentiflow@db:5432/sentiflow
       - REDIS_URL=redis://redis:6379
@@ -53,6 +56,8 @@ services:
       dockerfile: frontend/Dockerfile
     ports:
       - "8501:8501"
+    volumes:
+      - ./frontend:/app/frontend
     environment:
       - API_URL=http://api:8000
     depends_on:
