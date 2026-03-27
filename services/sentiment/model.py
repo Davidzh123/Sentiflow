@@ -5,39 +5,23 @@ import re
 
 
 class SentimentAnalyzer:
-    """Analyseur de sentiment multilingue avec XLM-RoBERTa"""
+    """Analyseur de sentiment multilingue - Modèle fine-tuné SentiFlow"""
     
-    # Mapping des labels vers français
-    LABEL_MAP = {
-        "joy": "joie",
-        "anger": "colere",
-        "sadness": "tristesse",
-        "fear": "peur",
-        "surprise": "surprise",
-        "disgust": "degout",
-        "neutral": "neutre",
-        # Labels alternatifs selon les modèles
-        "happy": "joie",
-        "angry": "colere",
-        "sad": "tristesse",
-        "scared": "peur",
-        "love": "joie",
-        "optimism": "joie",
-        "pessimism": "tristesse",
-    }
+    # Labels du modèle (ordre du fine-tuning)
+    LABELS_EN = ["sadness", "joy", "love", "anger", "fear", "surprise"]
+    LABELS_FR = ["tristesse", "joie", "amour", "colere", "peur", "surprise"]
     
-    LABELS = ["joie", "colere", "tristesse", "peur", "surprise", "degout", "neutre"]
-    
-    def __init__(self):
+    def __init__(self, model_name: str = "davidiabd2/SENTIFLOW_TWEET_FEELING"):
         self.device = 0 if torch.cuda.is_available() else -1
         
-        # Modèle multilingue pour les émotions
+        # Charger le modèle fine-tuné
         self.classifier = pipeline(
             "text-classification",
-            model="MilaNLProc/xlm-emo-t",
+            model=model_name,
             top_k=None,
             device=self.device
         )
+        self.model_name = model_name
     
     def preprocess(self, text: str) -> str:
         """Nettoie le texte du tweet"""
@@ -56,19 +40,17 @@ class SentimentAnalyzer:
         clean_text = self.preprocess(text)
         
         if not clean_text:
-            return {label: 0.0 for label in self.LABELS}
+            return {label: 0.0 for label in self.LABELS_FR}
         
         results = self.classifier(clean_text)[0]
         
-        # Initialiser tous les scores à 0
-        scores = {label: 0.0 for label in self.LABELS}
-        
-        # Convertir les résultats
+        # Convertir en dict avec labels français
+        scores = {label: 0.0 for label in self.LABELS_FR}
         for item in results:
-            label_en = item["label"].lower()
-            label_fr = self.LABEL_MAP.get(label_en, "neutre")
-            # Additionner si plusieurs labels mappent vers le même
-            scores[label_fr] = max(scores[label_fr], round(item["score"], 4))
+            # Format: LABEL_0, LABEL_1, etc.
+            idx = int(item["label"].split("_")[-1])
+            if idx < len(self.LABELS_FR):
+                scores[self.LABELS_FR[idx]] = round(item["score"], 4)
         
         return scores
     
@@ -81,11 +63,11 @@ class SentimentAnalyzer:
         
         all_scores = []
         for result in results:
-            scores = {label: 0.0 for label in self.LABELS}
+            scores = {label: 0.0 for label in self.LABELS_FR}
             for item in result:
-                label_en = item["label"].lower()
-                label_fr = self.LABEL_MAP.get(label_en, "neutre")
-                scores[label_fr] = max(scores[label_fr], round(item["score"], 4))
+                idx = int(item["label"].split("_")[-1])
+                if idx < len(self.LABELS_FR):
+                    scores[self.LABELS_FR[idx]] = round(item["score"], 4)
             all_scores.append(scores)
         
         return all_scores
