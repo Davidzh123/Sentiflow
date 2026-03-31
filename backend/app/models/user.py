@@ -18,3 +18,6 @@ class User(Base):
     # Relations
     targets = relationship("Target", back_populates="user")
     alerts = relationship("Alert", back_populates="user")
+    accounts = relationship("Account", back_populates="user")
+    dashboards = relationship("Dashboard", back_populates="user")
+    feedbacks = relationship("Feedback", back_populates="user")

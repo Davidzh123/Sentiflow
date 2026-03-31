@@ -2,7 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from backend.app.config import get_settings
 from backend.app.database import engine, Base
-from backend.app.routes import auth_router, targets_router, tweets_router, analysis_router, alerts_router, twitter_router, admin_router
+from backend.app.routes import auth_router, targets_router, tweets_router, analysis_router, alerts_router, twitter_router, admin_router, tasks_router
 
 settings = get_settings()
 
@@ -32,6 +32,7 @@ app.include_router(analysis_router)
 app.include_router(alerts_router)
 app.include_router(twitter_router)
 app.include_router(admin_router)
+app.include_router(tasks_router)
 
 
 @app.get("/")

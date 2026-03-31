@@ -34,7 +34,7 @@ with st.form("add_target"):
     with col2:
         target_type = st.selectbox("Type", ["hashtag", "account"])
 
-    if st.form_submit_button("Ajouter", use_container_width=True) and name:
+    if st.form_submit_button("Ajouter") and name:
         result = create_target(name, target_type)
         if result:
             st.success(f"✅ Cible '{name}' ajoutée!")
@@ -70,7 +70,7 @@ for target in targets:
         # --- Boutons d'action ---
         col1, col2, col3, col4 = st.columns(4)
         with col1:
-            if st.button("✅ Vérifier", key=f"v_{target['id']}", use_container_width=True):
+            if st.button("✅ Vérifier", key=f"v_{target['id']}"):
                 with st.spinner("Vérification..."):
                     result = verify_target(target["id"])
                 if result and result.get("exists"):
@@ -81,7 +81,7 @@ for target in targets:
                     st.error("❌ Erreur de vérification")
 
         with col2:
-            if st.button("📥 Collecter", key=f"c_{target['id']}", use_container_width=True):
+            if st.button("📥 Collecter", key=f"c_{target['id']}"):
                 with st.spinner("Collecte des tweets..."):
                     success, msg, res = collect_tweets(target["id"])
                 if success:
@@ -91,7 +91,7 @@ for target in targets:
                     st.error(f"Erreur: {msg}")
 
         with col3:
-            if st.button("🤖 Analyser", key=f"a_{target['id']}", type="primary", use_container_width=True):
+            if st.button("🤖 Analyser", key=f"a_{target['id']}", type="primary"):
                 with st.spinner("Analyse en cours (peut prendre 1-2 min)..."):
                     success, msg, res = analyze_tweets(target["id"])
                 if success:
@@ -101,7 +101,7 @@ for target in targets:
                     st.error(f"Erreur: {msg}")
 
         with col4:
-            if st.button("📊 Dashboard", key=f"d_{target['id']}", use_container_width=True):
+            if st.button("📊 Dashboard", key=f"d_{target['id']}"):
                 st.switch_page("pages/2_Dashboard.py")
 
         # --- Résumé rapide de l'analyse ---
@@ -143,6 +143,6 @@ for target in targets:
                     })
 
                 df = pd.DataFrame(rows)
-                st.dataframe(df, use_container_width=True, hide_index=True)
+                st.dataframe(df, hide_index=True)
         else:
             st.info("Aucun tweet collecté. Cliquez sur 📥 Collecter pour récupérer des tweets.")

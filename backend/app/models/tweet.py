@@ -24,3 +24,4 @@ class Tweet(Base):
 
     # Relations
     target = relationship("Target", back_populates="tweets")
+    feedbacks = relationship("Feedback", back_populates="tweet")

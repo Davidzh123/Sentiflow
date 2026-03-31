@@ -49,6 +49,46 @@ services:
         condition: service_healthy
     restart: unless-stopped
 
+  # Celery Worker - exécute les tâches en arrière-plan
+  celery-worker:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    command: celery -A backend.app.celery_app worker --loglevel=info
+    volumes:
+      - ./backend:/app/backend
+      - ./services:/app/services
+    environment:
+      - DATABASE_URL=postgresql://sentiflow:sentiflow@db:5432/sentiflow
+      - REDIS_URL=redis://redis:6379
+      - TWITTER_API_KEY=${TWITTER_API_KEY}
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # Celery Beat - planificateur de tâches périodiques
+  celery-beat:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    command: celery -A backend.app.celery_app beat --loglevel=info
+    volumes:
+      - ./backend:/app/backend
+      - ./services:/app/services
+    environment:
+      - DATABASE_URL=postgresql://sentiflow:sentiflow@db:5432/sentiflow
+      - REDIS_URL=redis://redis:6379
+      - TWITTER_API_KEY=${TWITTER_API_KEY}
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
   # Frontend Streamlit
   frontend:
     build:
