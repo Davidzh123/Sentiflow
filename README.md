@@ -1,201 +1,102 @@
-# SentiFlow 📊
+# 📊 SentiFlow - Analyse de Sentiments Twitter
 
-Plateforme d'analyse de sentiments Twitter avec LLM et Deep Reinforcement Learning.
+Plateforme d'analyse de sentiments Twitter en temps réel avec ML, Kafka et React.
 
-## 🚀 Installation rapide
+## Architecture
 
-### Prérequis
-- Docker Desktop
+| Service | Technologie | Port |
+|---------|------------|------|
+| Frontend | React + Nginx | 3000 |
+| API | FastAPI | 8000 |
+| Base de données | PostgreSQL | 5432 |
+| Cache/Queue | Redis | 6379 |
+| Streaming | Kafka | 9092 |
+| Planificateur | Celery Beat | - |
+| Worker | Celery Worker | - |
+| Consumer | Kafka Consumer | - |
+| Zookeeper | Zookeeper | 2181 |
+
+## Prérequis
+
+- [Docker](https://docs.docker.com/get-docker/) et Docker Compose
 - Git
 
-### Option 1 : Tout avec Docker (recommandé pour production/partage)
+C'est tout. Docker installe automatiquement toutes les dépendances (Python, Node.js, etc.).
+
+## Installation
 
 ```bash
-# Cloner le repo
-git clone https://github.com/ton-username/sentiflow.git
+# 1. Cloner le repo
+git clone https://github.com/votre-repo/sentiflow.git
 cd sentiflow
 
-# Créer le fichier .env
+# 2. Configurer les variables d'environnement
 cp .env.example .env
-# Éditer .env et ajouter TWITTER_API_KEY
+# Éditer .env et remplir :
+# - TWITTER_API_KEY : clé API twitterapi.io
+# - JWT_SECRET : générer avec python3 -c "import secrets; print(secrets.token_hex(32))"
+```
 
-# Lancer TOUT (BDD + Redis + API + Frontend)
-docker compose up -d
+## Lancement
+
+```bash
+# Lancer tous les services (premier lancement ~10-15 min)
+docker compose up -d --build
 
 # Vérifier que tout tourne
 docker compose ps
 ```
 
-Accéder à :
-- Frontend : http://localhost:8501
-- API Swagger : http://localhost:8000/docs
+Ouvrir dans le navigateur :
+- Frontend : http://localhost:3000
+- API docs : http://localhost:8000/docs
 
-### Option 2 : Dev local (pour développer)
+## Développement local (frontend)
 
-```bash
-# Installer uv
-pip install uv
-
-# Installer les dépendances
-uv sync
-
-# Lancer seulement BDD + Redis
-docker compose up -d db redis
-
-# Terminal 1 - API
-uv run uvicorn backend.app.main:app --reload
-
-# Terminal 2 - Frontend
-uv run streamlit run frontend/app.py
-```
-
-## 🤖 Modèle de Sentiment (ML)
-
-### Architecture
-Le projet utilise un modèle **XLM-RoBERTa** fine-tuné pour la classification d'émotions multilingue (français/anglais).
-
-**6 émotions détectées :**
-- 😊 Joie
-- 😢 Tristesse  
-- 😠 Colère
-- 😨 Peur
-- 😲 Surprise
-- ❤️ Amour
-
-### Datasets utilisés
-- `dair-ai/emotion` - 16 000 tweets annotés
-- `go_emotions` (Google) - 58 000 exemples supplémentaires
-
-### Tester le modèle
+Pour le développement du frontend React sans Docker :
 
 ```bash
-# Test rapide
-python -c "from services.sentiment.model import get_analyzer; a = get_analyzer(); print(a.predict('Je suis heureux'))"
-
-# Test sur dataset
-python scripts/test_model.py
-
-# Évaluation complète (accuracy, F1-score)
-python scripts/evaluate_model.py
+cd frontend
+npm install
+REACT_APP_API_URL=http://localhost:8000 npm start
 ```
 
-### Fine-tuning (améliorer le modèle)
+Le frontend sera sur http://localhost:3000 avec hot-reload.
 
-Le notebook `scripts/finetune_colab.ipynb` permet d'entraîner le modèle sur Google Colab (GPU gratuit).
-
-**Étapes :**
-1. Ouvrir https://colab.research.google.com
-2. File → Upload notebook → `scripts/finetune_colab.ipynb`
-3. Runtime → Change runtime type → **GPU**
-4. Exécuter toutes les cellules
-5. Télécharger le ZIP du modèle
-6. Décompresser dans `data/models/sentiflow_emotion_model/`
-
-**Résultats attendus :** ~92% accuracy, ~91% F1-score
-
-### Structure ML
-
-```
-services/sentiment/
-├── __init__.py
-└── model.py          # SentimentAnalyzer (inference)
-
-scripts/
-├── test_model.py     # Test sur quelques tweets
-├── evaluate_model.py # Évaluation avec métriques
-└── finetune_colab.ipynb  # Fine-tuning sur Colab
-
-data/
-├── raw/              # Datasets bruts (CSV)
-├── processed/        # Données nettoyées
-└── models/           # Modèles fine-tunés (local)
-```
-
-## 🌿 Git - Workflow pour collaborateurs
-
-### Récupérer le projet
-```bash
-git clone https://github.com/ton-username/sentiflow.git
-cd sentiflow
-```
-
-### Mettre à jour son code
-```bash
-git pull origin main
-```
-
-### Créer une nouvelle feature
-```bash
-git checkout -b feature/ma-feature
-# ... travailler ...
-git add .
-git commit -m "feat: description"
-git push origin feature/ma-feature
-```
-
-## 📁 Structure du projet
-
-```
-sentiflow/
-├── backend/          # API FastAPI
-│   ├── Dockerfile
-│   └── app/
-│       ├── routes/   # auth, targets, twitter, admin
-│       ├── models/   # User, Target, Tweet, Alert
-│       └── services/ # Auth, Twitter client
-├── frontend/         # Interface Streamlit
-│   ├── Dockerfile
-│   ├── app.py
-│   └── pages/        # Login, Dashboard, Cibles, Admin
-├── services/         # ML (sentiment, llm, drl)
-│   └── sentiment/    # Modèle d'émotions
-├── scripts/          # Scripts ML (test, eval, finetune)
-├── features/         # Pipelines ML
-├── tests/            # pytest
-├── data/             # Datasets et modèles
-├── docker-compose.yml
-└── .env.example
-```
-
-## 🧪 Tests
+## Commandes utiles
 
 ```bash
-uv run pytest tests/ -v
+# Voir les logs d'un service
+docker compose logs api --tail 20
+docker compose logs celery-worker --tail 20
+docker compose logs kafka-consumer --tail 20
+
+# Redémarrer un service
+docker compose restart api
+
+# Accéder à la base de données
+docker compose exec db psql -U sentiflow -d sentiflow
+
+# Arrêter tout
+docker compose down
+
+# Tout reconstruire
+docker compose up -d --build
 ```
 
-## 🔗 URLs
+## Créer un compte admin
 
-- Frontend : http://localhost:8501
-- API : http://localhost:8000
-- Swagger : http://localhost:8000/docs
-
-## 👥 Rôles utilisateurs
-
-- **User** : Créer cibles, collecter tweets, dashboard
-- **Admin** : Gérer utilisateurs, supprimer données
-
-Devenir admin :
 ```bash
-docker compose exec db psql -U sentiflow -d sentiflow -c "UPDATE users SET is_admin = TRUE WHERE email = 'ton-email';"
+# Créer un compte via le frontend, puis :
+docker compose exec db psql -U sentiflow -d sentiflow -c "UPDATE users SET is_admin = true WHERE email = 'votre@email.fr';"
 ```
 
-## ☁️ Déploiement AWS
+## Stack technique
 
-```bash
-# Build et push les images
-docker compose build
-
-# Sur AWS EC2 :
-# 1. Installer Docker
-# 2. Cloner le repo
-# 3. Créer .env avec les vraies clés
-# 4. docker compose up -d
-```
-
-## 📊 Technologies
-
-- **Backend** : FastAPI, SQLAlchemy, PostgreSQL
-- **Frontend** : Streamlit, Plotly
-- **ML** : PyTorch, Transformers (HuggingFace), XLM-RoBERTa
-- **Infra** : Docker, Redis
-- **API Twitter** : twitterapi.io
+- Backend : FastAPI, SQLAlchemy, JWT (Python/UV)
+- Frontend : React, Axios, Recharts
+- ML : XLM-RoBERTa fine-tuné (HuggingFace)
+- Streaming : Apache Kafka
+- Tâches : Celery + Redis
+- BDD : PostgreSQL
+- Conteneurisation : Docker Compose
