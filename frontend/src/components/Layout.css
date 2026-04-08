@@ -1,0 +1,98 @@
+.layout {
+  display: flex;
+  min-height: 100vh;
+  background: #0e1117;
+  color: #fafafa;
+}
+
+.sidebar {
+  width: 220px;
+  background: #1a1d23;
+  display: flex;
+  flex-direction: column;
+  border-right: 1px solid #2d2d2d;
+}
+
+.sidebar-header {
+  padding: 20px;
+  border-bottom: 1px solid #2d2d2d;
+}
+
+.sidebar-header h2 {
+  margin: 0;
+  font-size: 1.3rem;
+}
+
+.sidebar-nav {
+  flex: 1;
+  padding: 10px;
+}
+
+.nav-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 15px;
+  color: #aaa;
+  text-decoration: none;
+  border-radius: 8px;
+  margin-bottom: 4px;
+  transition: all 0.2s;
+}
+
+.nav-item:hover {
+  background: #2d2d2d;
+  color: #fff;
+}
+
+.nav-item.active {
+  background: #ff4b4b22;
+  color: #ff4b4b;
+}
+
+.sidebar-footer {
+  padding: 15px;
+  border-top: 1px solid #2d2d2d;
+}
+
+.user-info {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+  font-size: 0.9rem;
+}
+
+.badge {
+  background: #ff4b4b;
+  color: white;
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-size: 0.7rem;
+}
+
+.logout-btn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 12px;
+  background: none;
+  border: 1px solid #444;
+  color: #aaa;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 0.85rem;
+}
+
+.logout-btn:hover {
+  background: #ff4b4b22;
+  color: #ff4b4b;
+  border-color: #ff4b4b;
+}
+
+.main-content {
+  flex: 1;
+  padding: 30px;
+  overflow-y: auto;
+}

@@ -22,30 +22,40 @@ def get_db():
 
 @celery_app.task(name="backend.app.tasks.collect_all_targets")
 def collect_all_targets():
-    """Collecte les tweets pour toutes les cibles actives"""
+    """Collecte les tweets et les envoie dans Kafka"""
     from backend.app.services.twitter import twitter_service
+    from backend.app.kafka_producer import get_producer, send_tweet_to_kafka, flush_producer
 
     db = get_db()
     try:
         targets = db.query(Target).all()
+
+        if not targets:
+            print("[Celery] Aucune cible en base, collecte ignorée")
+            return {"message": "Aucune cible"}
+
+        producer = get_producer()
         results = []
 
         for target in targets:
             try:
-                result = _collect_for_target(db, target, twitter_service)
-                results.append({"target": target.name, "saved": result})
+                sent = _collect_and_produce(target, twitter_service, producer)
+                results.append({"target": target.name, "sent_to_kafka": sent})
             except Exception as e:
-                db.rollback()
                 results.append({"target": target.name, "error": str(e)})
 
-        print(f"[Celery] Collecte terminée: {results}")
+        flush_producer(producer)
+        producer.close()
+        print(f"[Celery] Collecte → Kafka terminée: {results}")
         return results
     finally:
         db.close()
 
 
-def _collect_for_target(db, target, twitter_service):
-    """Collecte les tweets pour une cible donnée"""
+def _collect_and_produce(target, twitter_service, producer):
+    """Collecte les tweets et les envoie dans Kafka"""
+    from backend.app.kafka_producer import send_tweet_to_kafka
+
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
 
@@ -62,37 +72,14 @@ def _collect_for_target(db, target, twitter_service):
         raise Exception(data["error"])
 
     tweets_data = data.get("tweets", data.get("data", []))
-    saved = 0
+    sent = 0
 
     for tweet_data in tweets_data:
         if isinstance(tweet_data, dict):
-            twitter_id = tweet_data.get("id", "")
-        else:
-            continue
+            send_tweet_to_kafka(producer, tweet_data, target.id, target.name)
+            sent += 1
 
-        exists = db.query(Tweet).filter(Tweet.twitter_id == str(twitter_id)).first()
-        if exists:
-            continue
-
-        author = tweet_data.get("author", {})
-
-        try:
-            new_tweet = Tweet(
-                twitter_id=str(twitter_id),
-                target_id=target.id,
-                text=tweet_data.get("text", ""),
-                author_id=str(author.get("id", "")),
-                author_username=author.get("userName", ""),
-            )
-            db.add(new_tweet)
-            db.flush()
-            saved += 1
-        except Exception:
-            db.rollback()
-            continue
-
-    db.commit()
-    return saved
+    return sent
 
 
 # --- ANALYSE AUTO ---
@@ -109,6 +96,11 @@ def analyze_all_targets():
         analyzer = get_analyzer()
 
         tweets = db.query(Tweet).filter(Tweet.sentiment.is_(None)).all()
+
+        if not tweets:
+            print("[Celery] Aucun tweet à analyser")
+            return {"analyzed": 0}
+
         analyzed = 0
 
         for tweet in tweets:
