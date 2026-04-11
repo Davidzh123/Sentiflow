@@ -58,6 +58,9 @@ dev-dependencies = [
 testpaths = ["tests"]
 python_files = "test_*.py"
 asyncio_mode = "auto"
+markers = [
+    "slow: tests nécessitant le chargement du modèle ML (~30s)",
+]
 
 [tool.ruff]
 line-length = 100
