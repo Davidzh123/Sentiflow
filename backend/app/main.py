@@ -1,8 +1,17 @@
+import logging
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from backend.app.config import get_settings
 from backend.app.database import engine, Base
 from backend.app.routes import auth_router, targets_router, tweets_router, analysis_router, alerts_router, twitter_router, admin_router, tasks_router
+
+# Configuration du logging global
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s — %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S"
+)
+logger = logging.getLogger("sentiflow")
 
 settings = get_settings()
 
