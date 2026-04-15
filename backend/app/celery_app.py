@@ -20,24 +20,24 @@ celery_app.conf.update(
 
 # Planification des tâches périodiques (Celery Beat)
 celery_app.conf.beat_schedule = {
-    # Collecte auto toutes les 2 minutes (TEST)
-    "collect-all-targets": {
-        "task": "backend.app.tasks.collect_all_targets",
-        "schedule": 120.0,  # 2 min
-    },
-    # Analyse auto toutes les 3 minutes (TEST)
+    # Collecte auto DESACTIVEE (utiliser le bouton "Collecter" dans le frontend)
+    # "collect-all-targets": {
+    #     "task": "backend.app.tasks.collect_all_targets",
+    #     "schedule": 7200.0,  # 2h
+    # },
+    # Analyse auto toutes les 2h30
     "analyze-all-targets": {
         "task": "backend.app.tasks.analyze_all_targets",
-        "schedule": 180.0,  # 3 min
+        "schedule": 9000.0,  # 2h30
     },
-    # Vérifier les alertes toutes les 4 minutes (TEST)
+    # Vérifier les alertes toutes les 1h
     "check-alerts": {
         "task": "backend.app.tasks.check_all_alerts",
-        "schedule": 240.0,  # 4 min
+        "schedule": 3600.0,  # 1h
     },
-    # Agréger les sentiments toutes les 5 minutes (TEST)
+    # Agréger les sentiments toutes les 6h
     "aggregate-sentiments": {
         "task": "backend.app.tasks.aggregate_sentiments",
-        "schedule": 300.0,  # 5 min
+        "schedule": 21600.0,  # 6h
     },
 }

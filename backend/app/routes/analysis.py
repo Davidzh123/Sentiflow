@@ -67,10 +67,26 @@ def analyze_tweets(
     errors = 0
     sentiment_stats = {s: 0 for s in VALID_SENTIMENTS}
     low_confidence_count = 0
+    skipped_no_text = 0
 
     for i, tweet in enumerate(tweets):
         tweet_start = time.time()
         try:
+            # Filtrer les tweets sans vrai contenu textuel
+            import re
+            clean = re.sub(r'http\S+|www\S+|https\S+', '', tweet.text or '')
+            clean = re.sub(r'@\w+', '', clean)
+            clean = re.sub(r'#\w+', '', clean)
+            clean = re.sub(r'[^\w\s]', '', clean)
+            clean = clean.strip()
+
+            if len(clean) < 10:
+                logger.warning(
+                    f"[ANALYSE] ⏭ Tweet #{tweet.id} ignoré: pas assez de texte ({len(clean)} chars)"
+                )
+                skipped_no_text += 1
+                continue
+
             # Prédire le sentiment
             scores = analyzer.predict(tweet.text)
             dominant, confidence = analyzer.get_dominant_sentiment(scores)
