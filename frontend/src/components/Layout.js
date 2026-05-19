@@ -1,7 +1,7 @@
 import React from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { BarChart3, Target, Bell, Settings, LogOut, Home, LogIn } from 'lucide-react';
+import { BarChart3, Target, Bell, Settings, LogOut, Home, LogIn, Bot } from 'lucide-react';
 import './Layout.css';
 
 export default function Layout({ children }) {
@@ -20,6 +20,7 @@ export default function Layout({ children }) {
         { path: '/dashboard', icon: <BarChart3 size={20} />, label: 'Dashboard' },
         { path: '/cibles', icon: <Target size={20} />, label: 'Cibles' },
         { path: '/alertes', icon: <Bell size={20} />, label: 'Alertes' },
+        { path: '/assistant', icon: <Bot size={20} />, label: 'Assistant LLM' },
         ...(user.is_admin ? [{ path: '/admin', icon: <Settings size={20} />, label: 'Admin' }] : []),
       ]
     : [

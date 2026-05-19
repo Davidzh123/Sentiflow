@@ -8,7 +8,7 @@ import Dashboard from './pages/Dashboard';
 import Cibles from './pages/Cibles';
 import Alertes from './pages/Alertes';
 import Admin from './pages/Admin';
-
+import AssistantLLM from './pages/AssistantLLM';
 function PrivateRoute({ children }) {
   const { token, loading } = useAuth();
   if (loading) return <p>Chargement...</p>;
@@ -27,6 +27,7 @@ function App() {
             <Route path="/cibles" element={<PrivateRoute><Cibles /></PrivateRoute>} />
             <Route path="/alertes" element={<PrivateRoute><Alertes /></PrivateRoute>} />
             <Route path="/admin" element={<PrivateRoute><Admin /></PrivateRoute>} />
+            <Route  path="/assistant" element={<PrivateRoute><AssistantLLM /></PrivateRoute>}/>
           </Routes>
         </Layout>
       </AuthProvider>

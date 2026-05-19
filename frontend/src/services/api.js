@@ -67,4 +67,5 @@ export const createAlert = (data) => api.post('/alerts/', data);
 export const triggerCollectAll = () => api.post('/tasks/collect-all');
 export const triggerAnalyzeAll = () => api.post('/tasks/analyze-all');
 
+export const askLlm = (data) =>  api.post('/llm/ask', data, { timeout: 60000 });
 export default api;

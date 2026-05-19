@@ -6,5 +6,6 @@ from backend.app.routes.alerts import router as alerts_router
 from backend.app.routes.twitter import router as twitter_router
 from backend.app.routes.admin import router as admin_router
 from backend.app.routes.celery_routes import router as tasks_router
+from backend.app.routes.llm import router as llm_router
 
 __all__ = ["auth_router", "targets_router", "tweets_router", "analysis_router", "alerts_router", "twitter_router", "admin_router", "tasks_router"]
