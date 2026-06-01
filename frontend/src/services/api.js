@@ -40,18 +40,26 @@ export const getMe = () => api.get('/auth/me');
 
 // Targets
 export const getTargets = () => api.get('/targets/');
-export const createTarget = (name, target_type) =>
-  api.post('/targets/', { name, target_type });
+
+// Compatible avec les deux styles : createTarget(name, type) ou createTarget({ name, target_type })
+export const createTarget = (nameOrPayload, targetType) => {
+  const payload =
+    typeof nameOrPayload === 'object'
+      ? nameOrPayload
+      : { name: nameOrPayload, target_type: targetType };
+  return api.post('/targets/', payload);
+};
+
 export const deleteTarget = (id) => api.delete(`/targets/${id}`);
 
 // Twitter
 export const verifyTarget = (id) => api.get(`/twitter/verify/${id}`);
 export const collectTweets = (id) =>
-  api.post(`/twitter/collect/${id}`, null, { timeout: 60000 });
+  api.post(`/twitter/collect/${id}`, null, { timeout: 120000 });
 
 // Analysis
 export const analyzeTweets = (id) =>
-  api.post(`/analysis/${id}/analyze`, null, { timeout: 120000 });
+  api.post(`/analysis/${id}/analyze`, null, { timeout: 180000 });
 export const getAnalysis = (id, days = 7) =>
   api.get(`/analysis/${id}`, { params: { days } });
 
@@ -67,5 +75,19 @@ export const createAlert = (data) => api.post('/alerts/', data);
 export const triggerCollectAll = () => api.post('/tasks/collect-all');
 export const triggerAnalyzeAll = () => api.post('/tasks/analyze-all');
 
-export const askLlm = (data) =>  api.post('/llm/ask', data, { timeout: 60000 });
+// LLM
+export const askLlm = (data) =>
+  api.post('/llm/ask', data, { timeout: 120000 });
+
+export const askLlmAgent = (data) =>
+  api.post('/llm/agent', data, { timeout: 240000 });
+
+export const getLlmModelInfo = () => api.get('/llm/model-info');
+
+// Generated dashboards
+export const getGeneratedDashboards = () => api.get('/dashboards/');
+export const getGeneratedDashboard = (id) => api.get(`/dashboards/${id}`);
+export const createGeneratedDashboard = (data) => api.post('/dashboards/', data);
+export const deleteGeneratedDashboard = (id) => api.delete(`/dashboards/${id}`);
+
 export default api;

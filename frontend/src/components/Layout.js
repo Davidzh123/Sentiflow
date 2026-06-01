@@ -18,6 +18,7 @@ export default function Layout({ children }) {
     ? [
         { path: '/', icon: <Home size={20} />, label: 'Accueil' },
         { path: '/dashboard', icon: <BarChart3 size={20} />, label: 'Dashboard' },
+        { path: '/dashboards/generated', icon: <BarChart3 size={20} />, label: 'Dashboards générés' },
         { path: '/cibles', icon: <Target size={20} />, label: 'Cibles' },
         { path: '/alertes', icon: <Bell size={20} />, label: 'Alertes' },
         { path: '/assistant', icon: <Bot size={20} />, label: 'Assistant LLM' },

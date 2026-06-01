@@ -6,9 +6,10 @@ from backend.app.models.account import Account
 from backend.app.models.sentiment_aggregate import SentimentAggregate
 from backend.app.models.dashboard import Dashboard, DashboardExport
 from backend.app.models.feedback import Feedback
+from backend.app.models.generated_dashboard import GeneratedDashboard
 
 __all__ = [
     "User", "Target", "Tweet", "Alert",
     "Account", "SentimentAggregate",
-    "Dashboard", "DashboardExport", "Feedback"
+    "Dashboard", "DashboardExport", "Feedback", "GeneratedDashboard"
 ]
