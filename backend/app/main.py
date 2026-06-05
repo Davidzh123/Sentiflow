@@ -4,6 +4,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from backend.app.config import get_settings
 from backend.app.database import engine, Base
+from backend.app.services.demo_schema_migrations import run_demo_schema_migrations
 from backend.app.routes import (
     auth_router,
     targets_router,
@@ -15,6 +16,7 @@ from backend.app.routes import (
     tasks_router,
     llm_router,
     dashboards_router,
+    feedback_router,
 )
 
 # Configuration du logging global
@@ -28,7 +30,10 @@ logger = logging.getLogger("sentiflow")
 settings = get_settings()
 
 # Créer les tables au démarrage pour le mode projet/demo.
+# create_all crée les tables manquantes, mais ne modifie pas les tables déjà existantes.
+# Les petites migrations ci-dessous évitent de supprimer le volume Postgres après un patch.
 Base.metadata.create_all(bind=engine)
+run_demo_schema_migrations(engine)
 
 app = FastAPI(
     title=settings.app_name,
@@ -54,6 +59,7 @@ app.include_router(admin_router)
 app.include_router(tasks_router)
 app.include_router(llm_router)
 app.include_router(dashboards_router)
+app.include_router(feedback_router)
 
 
 @app.get("/")
