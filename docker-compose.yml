@@ -1,7 +1,7 @@
 services:
-  # Base de données PostgreSQL
+  # Base de données PostgreSQL avec pgvector
   db:
-    image: postgres:15-alpine
+    image: pgvector/pgvector:pg15
     environment:
       POSTGRES_USER: sentiflow
       POSTGRES_PASSWORD: sentiflow
@@ -42,6 +42,8 @@ services:
       - REDIS_URL=redis://redis:6379
       - JWT_SECRET=${JWT_SECRET:-change-this-secret-in-production}
       - TWITTER_API_KEY=${TWITTER_API_KEY}
+      - MISTRAL_API_KEY=${MISTRAL_API_KEY:-}
+      - GROQ_API_KEY=${GROQ_API_KEY:-}
     depends_on:
       db:
         condition: service_healthy
@@ -163,5 +165,16 @@ services:
         condition: service_healthy
     restart: unless-stopped
 
+  # MLflow - tracking des experiences ML
+  mlflow:
+    image: ghcr.io/mlflow/mlflow:v2.12.1
+    command: mlflow server --host 0.0.0.0 --port 5000 --backend-store-uri sqlite:///mlflow.db --default-artifact-root /mlflow/artifacts
+    ports:
+      - "5000:5000"
+    volumes:
+      - mlflow_data:/mlflow
+    restart: unless-stopped
+
 volumes:
   postgres_data:
+  mlflow_data:

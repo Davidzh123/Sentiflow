@@ -6,9 +6,16 @@ from backend.app.models.account import Account
 from backend.app.models.sentiment_aggregate import SentimentAggregate
 from backend.app.models.dashboard import Dashboard, DashboardExport
 from backend.app.models.feedback import Feedback
+try:
+    from backend.app.models.embedding import TweetEmbedding
+except ImportError:
+    TweetEmbedding = None  # pgvector non installé — RAG from scratch utilisé
+from backend.app.models.prediction_log import PredictionLog
+from backend.app.models.drift_log import DriftLog
 
 __all__ = [
     "User", "Target", "Tweet", "Alert",
     "Account", "SentimentAggregate",
-    "Dashboard", "DashboardExport", "Feedback"
+    "Dashboard", "DashboardExport", "Feedback",
+    "TweetEmbedding", "PredictionLog", "DriftLog"
 ]

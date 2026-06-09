@@ -41,6 +41,12 @@ class Settings(BaseSettings):
     # Twitter API (twitterapi.io)
     twitter_api_key: str = ""
 
+    # Mistral API (RAG)
+    mistral_api_key: str = ""
+
+    # Groq API (RAG LLM generation)
+    groq_api_key: str = ""
+
     # Kafka
     kafka_bootstrap_servers: str = "kafka:29092"
 
