@@ -1,7 +1,7 @@
 import pytest
 
 
-EXPECTED_LABELS = ["tristesse", "joie", "amour", "colere", "peur", "surprise"]
+EXPECTED_LABELS = ["tristesse", "joie", "amour", "colere", "peur", "surprise", "neutre"]
 
 
 class TestSentimentPreprocess:
@@ -57,10 +57,10 @@ class TestSentimentModel:
         assert analyzer is not None
         assert analyzer.classifier is not None
 
-    def test_predict_retourne_6_labels(self, analyzer):
+    def test_predict_retourne_7_labels(self, analyzer):
         """predict() doit retourner un score pour chaque label"""
         scores = analyzer.predict("Je suis content")
-        assert len(scores) == 6
+        assert len(scores) == 7
         for label in EXPECTED_LABELS:
             assert label in scores
 

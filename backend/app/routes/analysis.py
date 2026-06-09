@@ -92,6 +92,11 @@ def analyze_tweets(
             dominant, confidence = analyzer.get_dominant_sentiment(scores)
             tweet_time = time.time() - tweet_start
 
+            # Seuil de confiance : si < 50%, marquer comme "incertain"
+            CONFIDENCE_THRESHOLD = 0.50
+            if confidence < CONFIDENCE_THRESHOLD:
+                dominant = "incertain"
+
             # Mettre à jour le tweet
             tweet.sentiment_scores = scores
             tweet.confidence = confidence

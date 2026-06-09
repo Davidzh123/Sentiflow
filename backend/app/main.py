@@ -4,6 +4,10 @@ from fastapi.middleware.cors import CORSMiddleware
 from backend.app.config import get_settings
 from backend.app.database import engine, Base
 from backend.app.routes import auth_router, targets_router, tweets_router, analysis_router, alerts_router, twitter_router, admin_router, tasks_router
+from backend.app.routes.rag import router as rag_router
+from backend.app.routes.monitoring import router as monitoring_router
+from backend.app.routes.mlflow_routes import router as mlflow_router
+from backend.app.routes.data_export import router as data_export_router
 
 # Configuration du logging global
 logging.basicConfig(
@@ -14,6 +18,12 @@ logging.basicConfig(
 logger = logging.getLogger("sentiflow")
 
 settings = get_settings()
+
+# Activer pgvector
+from sqlalchemy import text as sql_text
+with engine.connect() as conn:
+    conn.execute(sql_text("CREATE EXTENSION IF NOT EXISTS vector"))
+    conn.commit()
 
 # Créer les tables
 Base.metadata.create_all(bind=engine)
@@ -42,6 +52,10 @@ app.include_router(alerts_router)
 app.include_router(twitter_router)
 app.include_router(admin_router)
 app.include_router(tasks_router)
+app.include_router(rag_router)
+app.include_router(monitoring_router)
+app.include_router(mlflow_router)
+app.include_router(data_export_router)
 
 
 @app.get("/")

@@ -2,6 +2,7 @@ import React from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import Layout from './components/Layout';
+import Chatbot from './components/Chatbot';
 import Home from './pages/Home';
 import Login from './pages/Login';
 import Dashboard from './pages/Dashboard';
@@ -29,6 +30,7 @@ function App() {
             <Route path="/admin" element={<PrivateRoute><Admin /></PrivateRoute>} />
           </Routes>
         </Layout>
+        <Chatbot />
       </AuthProvider>
     </BrowserRouter>
   );

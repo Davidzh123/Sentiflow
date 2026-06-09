@@ -8,8 +8,8 @@ class SentimentAnalyzer:
     """Analyseur de sentiment multilingue - Modèle fine-tuné SentiFlow"""
     
     # Labels du modèle (ordre du fine-tuning)
-    LABELS_EN = ["sadness", "joy", "love", "anger", "fear", "surprise"]
-    LABELS_FR = ["tristesse", "joie", "amour", "colere", "peur", "surprise"]
+    LABELS_EN = ["sadness", "joy", "love", "anger", "fear", "surprise", "neutral"]
+    LABELS_FR = ["tristesse", "joie", "amour", "colere", "peur", "surprise", "neutre"]
     
     def __init__(self, model_name: str = "davidiabd2/SENTIFLOW_TWEET_FEELING"):
         self.device = 0 if torch.cuda.is_available() else -1

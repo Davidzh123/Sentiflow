@@ -113,6 +113,15 @@ def process_tweet(db, analyzer, message):
     dominant, confidence = analyzer.get_dominant_sentiment(scores)
     analysis_time = time.time() - analysis_start
 
+    # Seuil de confiance : si < 50%, marquer comme "incertain"
+    CONFIDENCE_THRESHOLD = 0.50
+    if confidence < CONFIDENCE_THRESHOLD:
+        logger.info(
+            f"[KAFKA] Confiance trop faible ({confidence:.0%}) pour tweet {twitter_id[:15]}... "
+            f"-> incertain (au lieu de {dominant})"
+        )
+        dominant = "incertain"
+
     # Sauvegarder en DB
     try:
         tweet = Tweet(

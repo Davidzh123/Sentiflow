@@ -14,6 +14,9 @@ COPY pyproject.toml .
 # Installer uv et les dépendances
 RUN pip install uv && uv pip install --system -e .
 
+# Installer les dépendances RAG/MLOps
+RUN pip install pgvector sentence-transformers mlflow
+
 # Copier le code
 COPY backend/ backend/
 COPY services/ services/

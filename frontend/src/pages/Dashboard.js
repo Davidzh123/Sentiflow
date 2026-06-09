@@ -4,7 +4,7 @@ import { PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveCo
 import './Dashboard.css';
 
 const COLORS = ['#00C49F', '#FF4B4B', '#0088FE', '#FFBB28', '#FF8042', '#FF69B4'];
-const EMOJIS = { joie: '😊', tristesse: '😢', colere: '😠', peur: '😨', surprise: '😲', amour: '❤️' };
+const EMOJIS = { joie: '😊', tristesse: '😢', colere: '😠', peur: '😨', surprise: '😲', amour: '❤️', incertain: '❓' };
 
 export default function Dashboard() {
   const [targets, setTargets] = useState([]);

@@ -1,6 +1,6 @@
 import axios from 'axios';
 
-const API_URL = process.env.REACT_APP_API_URL || '';
+const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:8000';
 
 const api = axios.create({
   baseURL: API_URL,
@@ -66,5 +66,16 @@ export const createAlert = (data) => api.post('/alerts/', data);
 // Tasks (Celery)
 export const triggerCollectAll = () => api.post('/tasks/collect-all');
 export const triggerAnalyzeAll = () => api.post('/tasks/analyze-all');
+
+// RAG Chat
+export const ragChat = (question, target_id = null) =>
+  api.post('/rag/chat', { question, target_id }, { timeout: 60000 });
+export const ragIndex = () => api.post('/rag/index', null, { timeout: 120000 });
+
+// Monitoring
+export const getMonitoringStats = (hours = 24) =>
+  api.get('/monitoring/stats', { params: { hours } });
+export const checkDrift = (target_id = null) =>
+  api.get('/monitoring/drift', { params: { target_id } });
 
 export default api;

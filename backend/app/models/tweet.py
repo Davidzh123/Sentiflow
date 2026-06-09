@@ -4,7 +4,7 @@ from datetime import datetime
 from backend.app.database import Base
 
 # Liste des sentiments valides (en minuscules)
-VALID_SENTIMENTS = ["joie", "colere", "tristesse", "peur", "surprise", "amour"]
+VALID_SENTIMENTS = ["joie", "colere", "tristesse", "peur", "surprise", "amour", "incertain"]
 
 
 class Tweet(Base):
