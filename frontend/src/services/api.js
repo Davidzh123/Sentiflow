@@ -97,4 +97,21 @@ export const getGeneratedDashboard = (id) => api.get(`/dashboards/${id}`);
 export const createGeneratedDashboard = (data) => api.post('/dashboards/', data);
 export const deleteGeneratedDashboard = (id) => api.delete(`/dashboards/${id}`);
 
+// RAG from scratch + MCP
+export const ragChat = (data) =>
+  api.post('/rag/chat', data, { timeout: 120000 });
+
+export const ragIndex = (data) =>
+  api.post('/rag/index', data || { days: 30 }, { timeout: 60000 });
+
+export const ragInfo = () => api.get('/rag/info');
+
+export const ragMcpTools = () => api.get('/rag/mcp/tools');
+
+export const ragMcpCall = (toolName, args) =>
+  api.post('/rag/mcp/call', { tool_name: toolName, arguments: args }, { timeout: 60000 });
+
+export const ragEvaluate = (data) =>
+  api.post('/rag/evaluate', data || { log_mlflow: true }, { timeout: 180000 });
+
 export default api;

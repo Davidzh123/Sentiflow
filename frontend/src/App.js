@@ -10,6 +10,7 @@ import Cibles from './pages/Cibles';
 import Alertes from './pages/Alertes';
 import Admin from './pages/Admin';
 import AssistantLLM from './pages/AssistantLLM';
+import RagChat from './pages/RagChat';
 import GeneratedDashboards from './pages/GeneratedDashboards';
 import GeneratedDashboardDetail from './pages/GeneratedDashboardDetail';
 function PrivateRoute({ children }) {
@@ -31,6 +32,7 @@ function App() {
             <Route path="/alertes" element={<PrivateRoute><Alertes /></PrivateRoute>} />
             <Route path="/admin" element={<PrivateRoute><Admin /></PrivateRoute>} />
             <Route path="/assistant" element={<PrivateRoute><AssistantLLM /></PrivateRoute>} />
+            <Route path="/rag" element={<PrivateRoute><RagChat /></PrivateRoute>} />
             <Route path="/dashboards/generated" element={<PrivateRoute><GeneratedDashboards /></PrivateRoute>} />
             <Route path="/dashboards/generated/:id" element={<PrivateRoute><GeneratedDashboardDetail /></PrivateRoute>} />
           </Routes>

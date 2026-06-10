@@ -927,6 +927,7 @@ async def mcp_enrich(query: str, top_k: int = 15) -> List[Dict[str, Any]]:
     """
     Version async de l'enrichissement MCP.
     Appelée depuis le pipeline RAG async (chat()).
+    Stocke les tweets en BDD si une session est fournie.
     """
     try:
         from backend.app.services.mcp_server import execute_tool
@@ -949,6 +950,8 @@ async def mcp_enrich(query: str, top_k: int = 15) -> List[Dict[str, Any]]:
                 "analyzed_at": datetime.utcnow().isoformat(),
                 "source": "mcp_realtime",
                 "rrf_score": 0.01,
+                # Garder l'ID Twitter pour le stockage BDD
+                "twitter_id": str(t.get("id", "")),
             })
 
         logger.info(f"[RAG-MCP] {len(tweets)} tweets temps réel pour '{query}'")
@@ -957,6 +960,71 @@ async def mcp_enrich(query: str, top_k: int = 15) -> List[Dict[str, Any]]:
     except Exception as e:
         logger.warning(f"[RAG-MCP] Erreur: {e}")
         return []
+
+
+def store_mcp_tweets_in_db(db: Session, tweets: List[Dict[str, Any]], query: str) -> int:
+    """
+    Stocke les tweets récupérés par le MCP dans PostgreSQL.
+    Crée la cible si elle n'existe pas.
+    Retourne le nombre de tweets sauvegardés.
+    """
+    if not tweets or not db:
+        return 0
+
+    saved = 0
+    try:
+        # Trouver ou créer la cible
+        target_name = query.strip().lower()
+        target = db.query(Target).filter(Target.name == target_name).first()
+
+        if not target:
+            from backend.app.models.target import TargetType
+            target_type = TargetType.ACCOUNT if target_name.startswith("@") else TargetType.HASHTAG
+            target = Target(
+                name=target_name,
+                target_type=target_type,
+                query=target_name,
+                user_id=1,  # user système par défaut
+            )
+            db.add(target)
+            db.flush()
+            logger.info(f"[RAG-MCP] Cible créée: {target_name} (id={target.id})")
+
+        # Sauvegarder chaque tweet
+        for t in tweets:
+            twitter_id = t.get("twitter_id", "")
+            if not twitter_id:
+                continue
+
+            # Vérifier doublon
+            existing = db.query(Tweet).filter(Tweet.twitter_id == twitter_id).first()
+            if existing:
+                continue
+
+            text = t.get("text", "").strip()[:1000]
+            if not text:
+                continue
+
+            tweet = Tweet(
+                twitter_id=twitter_id,
+                target_id=target.id,
+                text=text,
+                author_username=t.get("author"),
+                sentiment=t.get("sentiment"),
+                confidence=t.get("confidence"),
+                analyzed_at=datetime.utcnow(),
+            )
+            db.add(tweet)
+            saved += 1
+
+        db.commit()
+        logger.info(f"[RAG-MCP] {saved} tweets sauvegardés en BDD pour '{query}'")
+
+    except Exception as e:
+        logger.error(f"[RAG-MCP] Erreur stockage BDD: {e}")
+        db.rollback()
+
+    return saved
 
 
 # ============================================
@@ -1346,9 +1414,11 @@ async def chat(
         if mcp_tweets:
             mcp_used = True
             mcp_tweets_count = len(mcp_tweets)
+            # Stocker en BDD (persistance)
+            store_mcp_tweets_in_db(db, mcp_tweets, question)
             # Indexer les tweets MCP dans le VectorIndex
             index.index_tweets(mcp_tweets)
-            logger.info(f"[RAG] {mcp_tweets_count} tweets MCP indexés")
+            logger.info(f"[RAG] {mcp_tweets_count} tweets MCP indexés + stockés en BDD")
 
     # 2. Hybrid Retrieve
     tweets = hybrid_retrieve(
@@ -1363,6 +1433,8 @@ async def chat(
         if mcp_tweets:
             mcp_used = True
             mcp_tweets_count = len(mcp_tweets)
+            # Stocker en BDD
+            store_mcp_tweets_in_db(db, mcp_tweets, question)
             # Fusionner
             existing_ids = {r.get("id") for r in tweets}
             for t in mcp_tweets:
