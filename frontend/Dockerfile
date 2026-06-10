@@ -4,6 +4,7 @@ COPY package*.json ./
 RUN npm ci
 COPY public/ public/
 COPY src/ src/
+ENV REACT_APP_API_URL=http://localhost:8000
 RUN npm run build
 
 FROM nginx:alpine

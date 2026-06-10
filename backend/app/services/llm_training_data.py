@@ -256,6 +256,31 @@ def generate_synthetic_examples(n: int = 8000, seed: int = 42) -> list[TrainingE
                 force_refresh=False,
             ),
         ),
+        # === EXEMPLES QUESTIONS BDD (pour ré-entraînement) ===
+        TrainingExample(
+            "quels sont mes cibles",
+            _plan("query_database", [], ["query_database"], dashboard=False),
+        ),
+        TrainingExample(
+            "combien de tweets j'ai en base",
+            _plan("query_database", [], ["query_database"], dashboard=False),
+        ),
+        TrainingExample(
+            "quelle est la répartition des langues dans mes tweets",
+            _plan("query_database", [], ["query_database"], dashboard=False),
+        ),
+        TrainingExample(
+            "quels comptes génèrent le plus de colère",
+            _plan("query_database", [], ["query_database"], dashboard=False),
+        ),
+        TrainingExample(
+            "statistiques globales de mes données",
+            _plan("query_database", [], ["query_database"], dashboard=False),
+        ),
+        TrainingExample(
+            "combien de tweets analysés par cible",
+            _plan("query_database", [], ["query_database"], dashboard=False),
+        ),
     ]
 
     return fixed + examples

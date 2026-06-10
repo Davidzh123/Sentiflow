@@ -63,6 +63,14 @@ MCP_TOOLS = {
         },
         "required": ["username"],
     },
+    "query_database": {
+        "name": "query_database",
+        "description": "Interroge la base de données SentiFlow pour obtenir des infos sur les cibles, tweets stockés, stats",
+        "parameters": {
+            "query_type": {"type": "string", "description": "Type de requête: targets, tweet_count, sentiment_stats, languages"},
+        },
+        "required": ["query_type"],
+    },
 }
 
 
@@ -98,6 +106,10 @@ async def execute_tool(tool_name: str, arguments: Dict[str, Any]) -> Dict[str, A
             result = await _tool_get_user_tweets(
                 username=arguments["username"],
                 limit=arguments.get("limit", 20),
+            )
+        elif tool_name == "query_database":
+            result = _tool_query_database(
+                query_type=arguments.get("query_type", "targets"),
             )
         else:
             result = {"error": f"Outil '{tool_name}' non implémenté"}
@@ -282,6 +294,109 @@ def _extract_tweets_from_api(api_result: Dict[str, Any]) -> List[Dict[str, Any]]
     if not isinstance(tweets_data, list):
         return []
     return [item for item in tweets_data if isinstance(item, dict)]
+
+
+def _tool_query_database(query_type: str = "targets") -> Dict[str, Any]:
+    """Interroge la BDD SentiFlow pour obtenir des infos sur les données stockées."""
+    from backend.app.database import SessionLocal
+    from backend.app.models.tweet import Tweet
+    from backend.app.models.target import Target
+
+    db = SessionLocal()
+    try:
+        if query_type == "targets":
+            targets = db.query(Target).all()
+            target_info = []
+            for t in targets:
+                count = db.query(Tweet).filter(Tweet.target_id == t.id).count()
+                analyzed = db.query(Tweet).filter(
+                    Tweet.target_id == t.id, Tweet.sentiment.isnot(None)
+                ).count()
+                target_info.append({
+                    "name": t.name,
+                    "type": str(t.target_type.value) if hasattr(t.target_type, "value") else str(t.target_type),
+                    "total_tweets": count,
+                    "analyzed_tweets": analyzed,
+                })
+            return {
+                "query_type": "targets",
+                "total_targets": len(targets),
+                "targets": target_info,
+                "summary": f"{len(targets)} cibles suivies, {sum(t['total_tweets'] for t in target_info)} tweets au total",
+            }
+
+        elif query_type == "tweet_count":
+            total = db.query(Tweet).count()
+            analyzed = db.query(Tweet).filter(Tweet.sentiment.isnot(None)).count()
+            return {
+                "query_type": "tweet_count",
+                "total": total,
+                "analyzed": analyzed,
+                "pending": total - analyzed,
+            }
+
+        elif query_type == "sentiment_stats":
+            from sqlalchemy import func
+            stats = (
+                db.query(Tweet.sentiment, func.count(Tweet.id))
+                .filter(Tweet.sentiment.isnot(None))
+                .group_by(Tweet.sentiment)
+                .all()
+            )
+            total = sum(count for _, count in stats)
+            return {
+                "query_type": "sentiment_stats",
+                "distribution": {sent: count for sent, count in stats},
+                "total_analyzed": total,
+                "percentages": {sent: f"{count/total:.0%}" for sent, count in stats} if total > 0 else {},
+            }
+
+        elif query_type == "languages":
+            # Détection simple de langue basée sur les caractères
+            tweets = db.query(Tweet.text).filter(Tweet.sentiment.isnot(None)).limit(500).all()
+            import re
+            lang_counts = {"français": 0, "anglais": 0, "coréen": 0, "autre": 0}
+            for (text,) in tweets:
+                if not text:
+                    continue
+                if re.search(r"[\uac00-\ud7af]", text):
+                    lang_counts["coréen"] += 1
+                elif re.search(r"[àâäçéèêëîïôöùûüÿœæ]", text.lower()):
+                    lang_counts["français"] += 1
+                elif re.search(r"[a-zA-Z]", text):
+                    lang_counts["anglais"] += 1
+                else:
+                    lang_counts["autre"] += 1
+            total = sum(lang_counts.values())
+            return {
+                "query_type": "languages",
+                "distribution": {k: v for k, v in lang_counts.items() if v > 0},
+                "total_analyzed": total,
+                "percentages": {k: f"{v/total:.0%}" for k, v in lang_counts.items() if v > 0} if total > 0 else {},
+            }
+
+        elif query_type == "anger_by_target":
+            # Colère par cible
+            from sqlalchemy import func
+            stats = (
+                db.query(Target.name, func.count(Tweet.id))
+                .join(Tweet, Tweet.target_id == Target.id)
+                .filter(Tweet.sentiment.in_(["colere", "tristesse", "peur"]))
+                .group_by(Target.name)
+                .order_by(func.count(Tweet.id).desc())
+                .all()
+            )
+            return {
+                "query_type": "anger_by_target",
+                "results": [{"target": name, "negative_tweets": count} for name, count in stats],
+                "summary": f"Cibles avec le plus de tweets négatifs : {', '.join(f'{n} ({c})' for n, c in stats[:5])}",
+            }
+
+        else:
+            return {"error": f"query_type '{query_type}' non supporté. Utilisez: targets, tweet_count, sentiment_stats, languages"}
+
+    finally:
+        db.close()
 
 
 def list_tools() -> List[Dict[str, Any]]:

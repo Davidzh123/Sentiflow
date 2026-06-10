@@ -1,6 +1,6 @@
 import axios from 'axios';
 
-const API_URL = process.env.REACT_APP_API_URL || '';
+const API_URL = 'http://localhost:8000';
 
 const api = axios.create({
   baseURL: API_URL,
@@ -113,5 +113,9 @@ export const ragMcpCall = (toolName, args) =>
 
 export const ragEvaluate = (data) =>
   api.post('/rag/evaluate', data || { log_mlflow: true }, { timeout: 180000 });
+
+// Assistant unifié (Agent + RAG automatique)
+export const assistantChat = (data) =>
+  api.post('/assistant/chat', data, { timeout: 240000 });
 
 export default api;

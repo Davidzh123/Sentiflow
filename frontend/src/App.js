@@ -11,6 +11,7 @@ import Alertes from './pages/Alertes';
 import Admin from './pages/Admin';
 import AssistantLLM from './pages/AssistantLLM';
 import RagChat from './pages/RagChat';
+import Assistant from './pages/Assistant';
 import GeneratedDashboards from './pages/GeneratedDashboards';
 import GeneratedDashboardDetail from './pages/GeneratedDashboardDetail';
 function PrivateRoute({ children }) {
@@ -31,8 +32,8 @@ function App() {
             <Route path="/cibles" element={<PrivateRoute><Cibles /></PrivateRoute>} />
             <Route path="/alertes" element={<PrivateRoute><Alertes /></PrivateRoute>} />
             <Route path="/admin" element={<PrivateRoute><Admin /></PrivateRoute>} />
-            <Route path="/assistant" element={<PrivateRoute><AssistantLLM /></PrivateRoute>} />
-            <Route path="/rag" element={<PrivateRoute><RagChat /></PrivateRoute>} />
+            <Route path="/assistant" element={<Assistant />} />
+            <Route path="/rag" element={<PrivateRoute><Assistant /></PrivateRoute>} />
             <Route path="/dashboards/generated" element={<PrivateRoute><GeneratedDashboards /></PrivateRoute>} />
             <Route path="/dashboards/generated/:id" element={<PrivateRoute><GeneratedDashboardDetail /></PrivateRoute>} />
           </Routes>

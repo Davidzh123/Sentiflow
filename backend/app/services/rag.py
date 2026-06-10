@@ -534,11 +534,13 @@ class VectorIndex:
         """
         Recherche hybride: combine TF-IDF (sémantique) + BM25 (mots-clés).
         Avec query expansion dynamique (co-occurrences) + Pseudo-Relevance Feedback.
+        Si la requête est trop générale (pas de résultats), retourne un échantillon global.
         """
         # Tokenize la requête
         query_tokens = tokenize(query)
         if not query_tokens:
-            return []
+            # Requête vide après tokenization → retourner un échantillon global
+            return self._global_sample(top_k)
 
         # Query expansion dynamique (basée sur les co-occurrences du corpus)
         expanded_tokens = expand_query_dynamic(
@@ -575,23 +577,29 @@ class VectorIndex:
             data["retrieval_method"] = "hybrid"
             first_pass_results.append(data)
 
+        # Si pas assez de résultats, compléter avec un échantillon global
+        if len(first_pass_results) < 3:
+            global_sample = self._global_sample(top_k)
+            existing_ids = {r["id"] for r in first_pass_results}
+            for r in global_sample:
+                if r["id"] not in existing_ids:
+                    first_pass_results.append(r)
+                    if len(first_pass_results) >= top_k:
+                        break
+
         # Pseudo-Relevance Feedback (PRF) : second passage
-        # On prend les top-3 résultats, on extrait les termes fréquents,
-        # et on refait une recherche avec la requête enrichie
         prf_tokens = query_tokens  # fallback
         if first_pass_results and len(first_pass_results) >= 2:
             prf_tokens = pseudo_relevance_feedback(
                 query_tokens, first_pass_results[:3], max_terms=3
             )
             if len(prf_tokens) > len(query_tokens):
-                # Second passage avec la requête enrichie par PRF
                 prf_query = " ".join(prf_tokens)
                 prf_tfidf = self.tfidf_search(prf_query, top_k=top_k // 2)
-                # Ajouter les nouveaux résultats pas encore vus
                 existing_ids = {r["id"] for r in first_pass_results}
                 for r in prf_tfidf:
                     if r["id"] not in existing_ids:
-                        r["rrf_score"] = 0.005  # score de base
+                        r["rrf_score"] = 0.005
                         r["retrieval_method"] = "hybrid+prf"
                         first_pass_results.append(r)
                         if len(first_pass_results) >= top_k:
@@ -600,9 +608,24 @@ class VectorIndex:
         logger.info(
             f"[RAG] Hybrid: {len(tfidf_results)} TF-IDF + {len(bm25_results)} BM25 "
             f"= {len(first_pass_results)} résultats "
-            f"(expanded: {len(expanded_tokens)} tokens, PRF: {len(query_tokens)} → {len(prf_tokens) if first_pass_results else 0})"
+            f"(expanded: {len(expanded_tokens)} tokens, PRF: {len(query_tokens)} → {len(prf_tokens)})"
         )
         return first_pass_results
+
+    def _global_sample(self, top_k: int = 15) -> List[Dict[str, Any]]:
+        """Retourne un échantillon diversifié de tweets quand la requête est trop large."""
+        if not self.documents:
+            return []
+        by_target: Dict[str, List[Dict]] = defaultdict(list)
+        for doc in self.documents:
+            by_target[doc.get("target", "?")].append(doc)
+        sample = []
+        for target, docs in by_target.items():
+            sample.extend(docs[:top_k // max(len(by_target), 1)])
+        for r in sample[:top_k]:
+            r["rrf_score"] = 0.008
+            r["retrieval_method"] = "global_sample"
+        return sample[:top_k]
 
     @property
     def indexed_count(self) -> int:
@@ -980,11 +1003,17 @@ def store_mcp_tweets_in_db(db: Session, tweets: List[Dict[str, Any]], query: str
         if not target:
             from backend.app.models.target import TargetType
             target_type = TargetType.ACCOUNT if target_name.startswith("@") else TargetType.HASHTAG
+            # Trouver un user_id existant
+            from backend.app.models.user import User
+            first_user = db.query(User).first()
+            owner_id = first_user.id if first_user else None
+            if not owner_id:
+                return 0
             target = Target(
                 name=target_name,
                 target_type=target_type,
                 query=target_name,
-                user_id=1,  # user système par défaut
+                user_id=owner_id,
             )
             db.add(target)
             db.flush()
@@ -1031,10 +1060,11 @@ def store_mcp_tweets_in_db(db: Session, tweets: List[Dict[str, Any]], query: str
 # PROMPT BUILDER FROM SCRATCH
 # ============================================
 
-def build_rag_prompt(question: str, tweets: List[Dict[str, Any]]) -> str:
+def build_rag_prompt(question: str, tweets: List[Dict[str, Any]], intent: str = "summarize") -> str:
     """
     Construit le prompt pour le générateur à partir de la question
     et des tweets récupérés par le retrieval.
+    Le prompt est DYNAMIQUE — il change selon l'intent détecté par le planner LLM.
     """
     if not tweets:
         return (
@@ -1052,8 +1082,14 @@ def build_rag_prompt(question: str, tweets: List[Dict[str, Any]]) -> str:
         author = t.get("author", "?")
         target = t.get("target", "?")
         text = str(t.get("text", ""))[:200]
+        # Inclure la date si disponible
+        date_str = ""
+        if t.get("created_at"):
+            date_str = f" | {str(t['created_at'])[:16]}"
+        elif t.get("analyzed_at"):
+            date_str = f" | {str(t['analyzed_at'])[:16]}"
         context_parts.append(
-            f"{i}. [{target}] @{author} | {sentiment} ({conf}) | \"{text}\""
+            f"{i}. [{target}] @{author} | {sentiment} ({conf}){date_str} | \"{text}\""
         )
 
     context = "\n".join(context_parts)
@@ -1070,17 +1106,53 @@ def build_rag_prompt(question: str, tweets: List[Dict[str, Any]]) -> str:
     else:
         percentages = "aucun"
 
+    # Cibles présentes dans les données
+    targets_in_data = list(set(t.get("target", "?") for t in tweets))
+
+    # Instructions DYNAMIQUES selon l'intent du planner LLM
+    intent_instructions = {
+        "compare": (
+            "Tu dois COMPARER les sentiments entre les différentes cibles.\n"
+            "Fais un tableau comparatif : quelle cible est plus positive/négative.\n"
+            "Donne les différences clés et une conclusion sur laquelle est mieux perçue.\n"
+            "Ne liste PAS chaque cible séparément — COMPARE-les directement."
+        ),
+        "timeline": (
+            "Tu dois analyser l'ÉVOLUTION TEMPORELLE des sentiments.\n"
+            "Est-ce que ça augmente ou diminue ? Y a-t-il une tendance ?\n"
+            "Base-toi sur les dates des tweets pour détecter les changements."
+        ),
+        "summarize": (
+            "Fais une SYNTHÈSE complète des sentiments.\n"
+            "Donne le sentiment dominant, les pourcentages, et des exemples concrets.\n"
+            "Explique POURQUOI les gens réagissent comme ça."
+        ),
+        "examples": (
+            "Donne des EXEMPLES concrets de tweets avec leur sentiment.\n"
+            "Cite les tweets les plus représentatifs."
+        ),
+        "dashboard": (
+            "Résume les données pour un dashboard.\n"
+            "Donne les chiffres clés : distribution, tendance, top auteurs."
+        ),
+    }
+
+    instruction = intent_instructions.get(intent, intent_instructions["summarize"])
+
     return (
         "Tu es l'assistant d'analyse de sentiments SentiFlow.\n"
         "Réponds en français, de manière claire et analytique.\n"
         "Base ta réponse UNIQUEMENT sur les tweets fournis ci-dessous.\n\n"
+        f"## Intention détectée : {intent}\n"
+        f"## Instruction : {instruction}\n\n"
+        f"## Cibles dans les données : {', '.join(targets_in_data)}\n\n"
         f"## Tweets pertinents ({len(tweets)} résultats)\n"
         f"{context}\n\n"
         f"## Statistiques\n"
         f"Distribution: {stats}\n"
         f"Pourcentages: {percentages}\n\n"
-        f"## Question\n{question}\n\n"
-        "Analyse les sentiments, cite des exemples, donne les pourcentages."
+        f"## Question de l'utilisateur\n{question}\n\n"
+        f"Réponds selon l'instruction ci-dessus. Cite des exemples concrets."
     )
 
 
@@ -1393,13 +1465,13 @@ async def chat(
     enable_mcp: bool = True,
 ) -> Dict[str, Any]:
     """
-    Pipeline RAG complet FROM SCRATCH + MCP :
-    1. Si index vide ET MCP activé → chercher sur Twitter d'abord
-    2. Index les tweets (si pas déjà fait)
-    3. Hybrid retrieve (TF-IDF cosine + BM25 + RRF)
-    4. Re-ranking (second passage)
+    Pipeline RAG complet FUSIONNÉ :
+    1. Planner LLM from scratch (TinyGPT de lseillier) → comprend l'intention + cibles
+    2. Si index vide ET MCP activé → chercher sur Twitter d'abord
+    3. Hybrid retrieve (TF-IDF cosine + BM25 + RRF) from scratch
+    4. Re-ranking (second passage) from scratch
     5. Build prompt
-    6. Generate (TinyGPT from scratch + fallback)
+    6. Generate (Groq / TinyGPT / fallback)
     7. Métriques
     """
     start = time.time()
@@ -1407,60 +1479,128 @@ async def chat(
     mcp_used = False
     mcp_tweets_count = 0
 
-    # 1. Si l'index est vide, aller chercher sur Twitter via MCP D'ABORD
-    if enable_mcp and (not index.is_fitted or index.indexed_count == 0):
-        logger.info(f"[RAG] Index vide, appel MCP avant retrieval...")
-        mcp_tweets = await mcp_enrich(question, top_k=15)
+    # ============================================
+    # ÉTAPE 1 : PLANNER LLM FROM SCRATCH (lseillier)
+    # Comprend la question, extrait l'intention et les cibles
+    # ============================================
+    plan = None
+    try:
+        from backend.app.services.llm_from_scratch import get_planner
+        planner = get_planner()
+        plan = planner.plan(question)
+        logger.info(
+            f"[RAG] Planner LLM: intent={plan.get('intent')}, "
+            f"targets={plan.get('targets')}, days={plan.get('days')}, "
+            f"source={plan.get('planner_source')}"
+        )
+    except Exception as e:
+        logger.warning(f"[RAG] Planner indisponible, mode retrieval pur: {e}")
+
+    # Extraire les cibles du plan pour améliorer la recherche
+    plan_targets = plan.get("targets", []) if plan else []
+    plan_intent = plan.get("intent", "summarize") if plan else "summarize"
+    plan_days = plan.get("days", 7) if plan else 7
+    plan_sentiment_filter = plan.get("sentiment_filter") if plan else None
+
+    # GUARDRAIL : extraire les mentions explicites (#hashtag, @compte) de la question
+    # et les utiliser en priorité sur le planner (qui peut halluciner)
+    import re as _re
+    explicit_targets = _re.findall(r"[#@][A-Za-z0-9_À-ÿ-]+", question)
+    explicit_targets = [t.lower() for t in explicit_targets]
+    if explicit_targets:
+        plan_targets = explicit_targets
+        logger.info(f"[RAG] Guardrail: cibles explicites utilisées: {plan_targets}")
+
+    # Construire une requête enrichie par le planner
+    enriched_query = question
+    if plan_targets:
+        # Ajouter les cibles extraites par le planner à la requête
+        enriched_query = f"{question} {' '.join(plan_targets)}"
+
+    # ============================================
+    # ÉTAPE 2 : MCP si index vide OU si la cible du planner n'est pas dans l'index
+    # ============================================
+    target_in_index = False
+    if plan_targets and index.is_fitted:
+        # Vérifier si la cible est déjà dans l'index
+        target_in_index = any(
+            any(pt in str(doc.get("target", "")).lower() for pt in plan_targets)
+            for doc in index.documents
+        )
+
+    needs_mcp = enable_mcp and (
+        not index.is_fitted
+        or index.indexed_count == 0
+        or (plan_targets and not target_in_index)
+    )
+
+    if needs_mcp:
+        mcp_query = plan_targets[0] if plan_targets else question
+        logger.info(f"[RAG] Appel MCP pour '{mcp_query}' (target_in_index={target_in_index})...")
+        mcp_tweets = await mcp_enrich(mcp_query, top_k=15)
         if mcp_tweets:
             mcp_used = True
             mcp_tweets_count = len(mcp_tweets)
             # Stocker en BDD (persistance)
-            store_mcp_tweets_in_db(db, mcp_tweets, question)
-            # Indexer les tweets MCP dans le VectorIndex
-            index.index_tweets(mcp_tweets)
+            store_mcp_tweets_in_db(db, mcp_tweets, mcp_query)
+            # Ajouter à l'index existant
+            all_docs = index.documents + mcp_tweets if index.is_fitted else mcp_tweets
+            index.index_tweets(all_docs)
             logger.info(f"[RAG] {mcp_tweets_count} tweets MCP indexés + stockés en BDD")
 
-    # 2. Hybrid Retrieve
+    # ============================================
+    # ÉTAPE 3 : HYBRID RETRIEVE (from scratch)
+    # ============================================
     tweets = hybrid_retrieve(
-        db, question, top_k=15, target_id=target_id, enable_mcp=False
+        db, enriched_query, top_k=15, target_id=target_id, enable_mcp=False
     )
     retrieve_time = time.time() - start
 
-    # 3. Si toujours pas assez, enrichir avec MCP
+    # ============================================
+    # ÉTAPE 4 : MCP si pas assez de résultats
+    # ============================================
     if enable_mcp and not mcp_used and len(tweets) < 3:
-        logger.info(f"[RAG] {len(tweets)} résultats locaux, appel MCP async...")
-        mcp_tweets = await mcp_enrich(question, top_k=15)
+        mcp_query = plan_targets[0] if plan_targets else question
+        logger.info(f"[RAG] {len(tweets)} résultats, appel MCP pour '{mcp_query}'...")
+        mcp_tweets = await mcp_enrich(mcp_query, top_k=15)
         if mcp_tweets:
             mcp_used = True
             mcp_tweets_count = len(mcp_tweets)
-            # Stocker en BDD
-            store_mcp_tweets_in_db(db, mcp_tweets, question)
-            # Fusionner
+            store_mcp_tweets_in_db(db, mcp_tweets, mcp_query)
             existing_ids = {r.get("id") for r in tweets}
             for t in mcp_tweets:
                 if t.get("id") not in existing_ids:
                     tweets.append(t)
-            # Re-rank le tout
-            tweets = rerank_results(question, tweets, top_k=15)
+            tweets = rerank_results(enriched_query, tweets, top_k=15)
         retrieve_time = time.time() - start
 
-    # 4. Métriques retrieval
+    # ============================================
+    # ÉTAPE 5 : MÉTRIQUES RETRIEVAL
+    # ============================================
     retrieval_metrics = compute_retrieval_metrics(question, tweets)
 
-    # 5. Build prompt
-    prompt = build_rag_prompt(question, tweets)
+    # ============================================
+    # ÉTAPE 6 : BUILD PROMPT
+    # ============================================
+    prompt = build_rag_prompt(question, tweets, intent=plan_intent)
 
-    # 6. Generate (from scratch)
+    # ============================================
+    # ÉTAPE 7 : GENERATE (Groq / TinyGPT / fallback)
+    # ============================================
     gen_start = time.time()
     answer = generate_answer_from_scratch(question, tweets, prompt)
     gen_time = time.time() - gen_start
 
-    # 7. Métriques réponse
+    # ============================================
+    # ÉTAPE 8 : MÉTRIQUES RÉPONSE
+    # ============================================
     answer_metrics = compute_answer_metrics(question, answer, tweets)
 
     total_time = time.time() - start
     logger.info(
         f"[RAG] Chat en {total_time:.2f}s | "
+        f"planner={plan.get('planner_source', '?') if plan else 'none'} | "
+        f"intent={plan_intent} | "
         f"retrieve={retrieve_time:.2f}s, generate={gen_time:.2f}s | "
         f"{len(tweets)} tweets (MCP={'oui' if mcp_used else 'non'}) | "
         f"relevance={retrieval_metrics['relevance']:.4f}"
@@ -1474,6 +1614,7 @@ async def chat(
         "mcp_used": mcp_used,
         "mcp_tweets_fetched": mcp_tweets_count,
         "generator": _get_generator_name(),
+        "plan": plan,  # Le plan du LLM from scratch
         "metrics": {
             "retrieval": retrieval_metrics,
             "answer": answer_metrics,

@@ -18,6 +18,7 @@ from backend.app.routes import (
     feedback_router,
 )
 from backend.app.routes.rag import router as rag_router
+from backend.app.routes.assistant import router as assistant_router
 
 # Configuration du logging global
 logging.basicConfig(
@@ -74,6 +75,7 @@ app.include_router(llm_router)
 app.include_router(dashboards_router)
 app.include_router(feedback_router)
 app.include_router(rag_router)
+app.include_router(assistant_router)
 
 
 @app.get("/")

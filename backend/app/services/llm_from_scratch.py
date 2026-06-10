@@ -41,6 +41,7 @@ ALLOWED_ACTIONS = {
     "get_timeline",
     "get_examples",
     "generate_dashboard",
+    "query_database",
 }
 
 
@@ -226,10 +227,20 @@ def fallback_plan(question: str) -> dict[str, Any]:
     wants_timeline = any(word in q for word in ["evolution", "tendance", "temps", "temporel", "augmente", "baisse"])
     wants_examples = any(word in q for word in ["exemple", "tweets", "montre", "affiche"])
     wants_dashboard = any(word in q for word in ["dashboard", "graphique", "graphiques", "visualisation", "tableau de bord"])
+    wants_database = any(word in q for word in [
+        "mes cibles", "ma base", "combien de tweets", "quelles cibles",
+        "mes donnees", "mes données", "statistiques globales",
+        "repartition", "répartition", "langues", "langue",
+        "quel compte", "quels comptes", "qui genere", "qui génère",
+        "stocke", "enregistre", "en base",
+    ])
 
     if wants_compare or len(targets) >= 2:
         intent = "compare"
         actions = ["create_missing_targets", "collect_tweets", "analyze_sentiments", "compare_targets", "generate_dashboard"]
+    elif wants_database:
+        intent = "query_database"
+        actions = ["query_database"]
     elif wants_timeline:
         intent = "timeline"
         actions = ["create_missing_targets", "analyze_sentiments", "get_timeline", "generate_dashboard"]
@@ -323,9 +334,18 @@ class SentiflowPlanner:
         return parsed
 
     def plan(self, question: str) -> dict[str, Any]:
+        # D'abord essayer le fallback symbolique (qui connaît les questions BDD)
+        fallback = fallback_plan(question)
+        
+        # Si le fallback détecte une question BDD, on l'utilise directement
+        # (le TinyGPT n'est pas encore entraîné pour ça)
+        if fallback.get("intent") == "query_database":
+            return validate_plan(fallback, question)
+        
+        # Sinon essayer le TinyGPT
         raw = self.generate_with_model(question) if self.loaded_checkpoint else None
         if raw is None:
-            raw = fallback_plan(question)
+            raw = fallback
         return validate_plan(raw, question)
 
     def model_info(self) -> dict[str, Any]:
