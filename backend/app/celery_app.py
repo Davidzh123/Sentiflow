@@ -21,20 +21,20 @@ celery_app.conf.update(
 
 # Planification des tâches périodiques (Celery Beat)
 celery_app.conf.beat_schedule = {
-    # Collecte auto DESACTIVEE (utiliser le bouton "Collecter" dans le frontend)
-    # "collect-all-targets": {
-    #     "task": "backend.app.tasks.collect_all_targets",
-    #     "schedule": 7200.0,  # 2h
-    # },
-    # Analyse auto toutes les 2h30
+    # Collecte auto toutes les 15 minutes (20 tweets les plus récents par cible, sans doublons)
+    "collect-all-targets": {
+        "task": "backend.app.tasks.collect_all_targets",
+        "schedule": 900.0,  # 15 minutes
+    },
+    # Analyse auto toutes les 20 minutes (juste après la collecte)
     "analyze-all-targets": {
         "task": "backend.app.tasks.analyze_all_targets",
-        "schedule": 9000.0,  # 2h30
+        "schedule": 1200.0,  # 20 minutes
     },
-    # Vérifier les alertes toutes les 1h
+    # Vérifier les alertes toutes les 30 minutes
     "check-alerts": {
         "task": "backend.app.tasks.check_all_alerts",
-        "schedule": 3600.0,  # 1h
+        "schedule": 1800.0,  # 30 minutes
     },
     # Agréger les sentiments toutes les 6h
     "aggregate-sentiments": {
@@ -45,5 +45,10 @@ celery_app.conf.beat_schedule = {
     "weekly-feedback-retraining": {
         "task": "backend.app.tasks.retrain_sentiment_from_feedback",
         "schedule": crontab(day_of_week="sun", hour=3, minute=0),
+    },
+    # Pipeline TinyGPT : ré-entraînement tous les 2 jours à 4h du matin
+    "tinygpt-retrain": {
+        "task": "backend.app.tasks.retrain_tinygpt_pipeline",
+        "schedule": crontab(hour=4, minute=0, day_of_week="*/2"),
     },
 }

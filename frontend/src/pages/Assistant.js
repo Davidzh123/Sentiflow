@@ -1,18 +1,132 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { assistantChat } from '../services/api';
+import { Send, Loader2, ExternalLink, ChevronDown, Download, FileText, RefreshCw } from 'lucide-react';
+import api from '../services/api';
+
+function formatMeta(data) {
+  if (!data) return null;
+  const parts = [];
+  if (data.total_retrieved) parts.push(`${data.total_retrieved} tweets`);
+  if (data.generator) parts.push(data.generator.replace(/_/g, ' '));
+  if (data.mcp_used) parts.push(`MCP: ${data.mcp_tweets_fetched || 0} temps reel`);
+  if (data.metrics?.timing?.total) parts.push(`${data.metrics.timing.total.toFixed(2)}s`);
+  return parts.join(' · ');
+}
+
+function formatExecutionLog(logs = []) {
+  if (!logs || !logs.length) return null;
+  return logs.map((step) => {
+    const target = step.target || step.target_name || '';
+    switch (step.action) {
+      case 'create_target': return `Cible creee : ${target}`;
+      case 'reuse_target': return `Cible existante : ${target}`;
+      case 'collect_tweets': return `Collecte ${target} : ${step.saved || 0} nouveaux, ${step.duplicates || 0} doublons`;
+      case 'skip_collect': return `Collecte ${target} : donnees deja disponibles`;
+      case 'analyze_sentiments': return `Analyse ${target} : ${step.analyzed || 0} tweets`;
+      case 'skip_analyze': return `Analyse ${target} : rien de nouveau`;
+      default: return `${step.action || 'action'} ${target}`;
+    }
+  }).join('\n');
+}
+
+function SourcesList({ sources }) {
+  if (!sources || !sources.length) return null;
+  return (
+    <details style={{ marginTop: 12, color: '#71717a' }}>
+      <summary style={{ cursor: 'pointer', fontSize: '0.75rem', display: 'flex', alignItems: 'center', gap: 4 }}>
+        <ChevronDown size={12} /> {sources.length} source(s)
+      </summary>
+      <div style={{ marginTop: 8 }}>
+        {sources.slice(0, 5).map((s, i) => (
+          <div key={i} style={{
+            padding: '8px 10px',
+            background: '#09090b',
+            borderRadius: 6,
+            marginBottom: 4,
+            fontSize: '0.73rem',
+            color: '#a1a1aa',
+            border: '1px solid #1c1c22',
+          }}>
+            <span style={{ color: '#e4e4e7' }}>@{s.author}</span>
+            <span style={{ margin: '0 6px', color: '#3f3f46' }}>·</span>
+            <span style={{ color: '#5271ff' }}>{s.sentiment}</span> ({(s.confidence * 100).toFixed(0)}%)
+            <div style={{ marginTop: 3, color: '#52525b', lineHeight: 1.4 }}>
+              {s.text?.slice(0, 120)}
+            </div>
+          </div>
+        ))}
+      </div>
+    </details>
+  );
+}
+
+function ExportPdfButton({ message }) {
+  const [loading, setLoading] = useState(false);
+
+  const handleExport = async () => {
+    setLoading(true);
+    try {
+      const res = await api.post('/assistant/export-pdf', {
+        question: message.originalQuestion || '',
+        answer: message.content || '',
+        sources: message.sources || [],
+        metrics: message.metrics || null,
+      }, { responseType: 'blob' });
+
+      const url = window.URL.createObjectURL(new Blob([res.data]));
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'sentiflow_rapport.pdf';
+      a.click();
+      window.URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error('Export PDF failed:', err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  if (!message.sources || !message.sources.length) return null;
+
+  return (
+    <button onClick={handleExport} disabled={loading} style={{
+      marginTop: 8,
+      padding: '6px 10px',
+      background: 'transparent',
+      border: '1px solid #27272a',
+      borderRadius: 6,
+      color: '#71717a',
+      fontSize: '0.72rem',
+      display: 'inline-flex',
+      alignItems: 'center',
+      gap: 4,
+      cursor: loading ? 'wait' : 'pointer',
+    }}>
+      {loading ? <Loader2 size={12} style={{ animation: 'spin 1s linear infinite' }} /> : <FileText size={12} />}
+      Exporter PDF
+    </button>
+  );
+}
 
 export default function Assistant() {
   const [messages, setMessages] = useState([
     {
       role: 'assistant',
       content:
-        "Salut ! Je suis l'assistant SentiFlow.\n\n" +
-        "Tu peux me demander :\n" +
-        "• **Collecter** : \"récupère les tweets avec #france\" → je collecte, analyse et stocke\n" +
-        "• **Analyser** : \"quel est le sentiment sur #trump ?\" → je cherche et réponds\n" +
-        "• **Comparer** : \"compare #love et #politique\" → je compare les sentiments\n\n" +
-        "Je décide automatiquement s'il faut aller chercher sur Twitter ou si j'ai déjà les données.",
+        "Bienvenue sur l'assistant SentiFlow.\n\nJe fonctionne en 3 modes selon ta question :\n\n" +
+        "MODE AGENT (collecte + analyse + dashboard) :\n" +
+        "• \"Recupere les tweets de #bts\"\n" +
+        "• \"Cree la cible @elonmusk et analyse\"\n" +
+        "• \"Collecte #minecraft et compare avec #fortnite\"\n\n" +
+        "MODE RAG (recherche dans les tweets existants) :\n" +
+        "• \"Quel est le sentiment sur #france ?\"\n" +
+        "• \"Pourquoi les gens sont en colere sur #politique ?\"\n" +
+        "• \"Compare les sentiments de #psg et #om\"\n\n" +
+        "MODE BDD (stats directes) :\n" +
+        "• \"Combien de tweets en base ?\"\n" +
+        "• \"Quelles sont mes cibles ?\"\n" +
+        "• \"Repartition des langues\"",
     },
   ]);
   const [question, setQuestion] = useState('');
@@ -35,48 +149,63 @@ export default function Assistant() {
       const response = await assistantChat({ question: q, enable_mcp: true });
       const data = response.data;
 
-      // Badge du mode utilisé
-      const modeBadge = data.mode === 'agent'
-        ? '🤖 Agent (collecte + dashboard)'
-        : '🔍 RAG (recherche intelligente)';
-
-      // Infos techniques
-      const techInfo = [];
-      if (data.mode === 'agent') {
-        const log = (data.execution_log || []).map(step => {
-          if (step.action === 'collect_tweets') return `📥 ${step.target}: ${step.saved || 0} tweets`;
-          if (step.action === 'analyze_sentiments') return `🤖 ${step.target}: ${step.analyzed || 0} analysés`;
-          if (step.action === 'create_target') return `✅ Cible créée: ${step.target}`;
-          if (step.action === 'reuse_target') return `♻️ Cible existante: ${step.target}`;
-          return null;
-        }).filter(Boolean);
-        if (log.length) techInfo.push(log.join('\n'));
-      } else {
-        if (data.total_retrieved) techInfo.push(`📊 ${data.total_retrieved} tweets trouvés`);
-        if (data.mcp_used) techInfo.push(`🐦 Twitter temps réel utilisé`);
-        if (data.generator) techInfo.push(`💬 Générateur: ${data.generator}`);
-      }
-
       setMessages((prev) => [
         ...prev,
         {
           role: 'assistant',
-          content: data.answer || "Pas de réponse.",
-          mode: data.mode,
-          modeBadge,
-          techInfo: techInfo.join('\n'),
+          content: data.answer || "Pas de reponse disponible.",
+          meta: formatMeta(data),
+          sources: data.sources,
+          metrics: data.metrics,
+          executionLog: formatExecutionLog(data.execution_log),
           dashboardId: data.dashboard_id,
           dashboardUrl: data.dashboard_url,
-          sources: data.sources,
           plan: data.plan,
+          mode: data.mode,
+          originalQuestion: q,
         },
       ]);
     } catch (err) {
-      const detail = err?.response?.data?.detail || err.message || 'Erreur inconnue';
+      const detail = err?.response?.data?.detail;
+      const msg = typeof detail === 'string' ? detail : (Array.isArray(detail) ? detail.map(d => d.msg).join(', ') : JSON.stringify(detail || err.message));
       setMessages((prev) => [
         ...prev,
-        { role: 'assistant', content: `❌ Erreur : ${typeof detail === 'string' ? detail : JSON.stringify(detail)}` },
+        { role: 'assistant', content: `Erreur : ${msg}` },
       ]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleRegenerate = async (msg) => {
+    if (loading) return;
+    const feedback = window.prompt("Qu'est-ce qui ne va pas ? (ex: mauvaise cible, reponse vague...)");
+    if (!feedback) return;
+
+    setLoading(true);
+    try {
+      const response = await api.post('/assistant/feedback', {
+        question: msg.originalQuestion,
+        previous_answer: msg.content,
+        feedback: feedback,
+        regenerate_mode: 'auto',
+      }, { timeout: 240000 });
+
+      const data = response.data;
+      setMessages((prev) => [
+        ...prev,
+        {
+          role: 'assistant',
+          content: data.answer || "Reponse regeneree indisponible.",
+          meta: `Regenere (${data.mode}) | Feedback: ${data.feedback_applied}`,
+          sources: data.sources,
+          originalQuestion: msg.originalQuestion,
+          mode: data.mode,
+        },
+      ]);
+    } catch (err) {
+      const detail = err?.response?.data?.detail;
+      setMessages((prev) => [...prev, { role: 'assistant', content: `Erreur regeneration : ${detail || err.message}` }]);
     } finally {
       setLoading(false);
     }
@@ -90,110 +219,137 @@ export default function Assistant() {
   };
 
   return (
-    <div style={{ maxWidth: 980, margin: '0 auto', height: 'calc(100vh - 60px)', display: 'flex', flexDirection: 'column' }}>
+    <div className="animate-in" style={{ maxWidth: 880, margin: '0 auto', height: 'calc(100vh - 72px)', display: 'flex', flexDirection: 'column' }}>
       {/* Header */}
-      <div style={{ marginBottom: 12 }}>
-        <h1 style={{ marginBottom: 4 }}>🧠 Assistant SentiFlow</h1>
-        <p style={{ color: '#9ca3af', margin: 0, fontSize: 13 }}>
-          Pipeline unifié : Planner LLM from scratch → Agent (collecte) OU RAG (recherche) → MCP Twitter → Groq
-        </p>
+      <div style={{ marginBottom: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+        <div>
+          <h1 style={{ marginBottom: 4, fontSize: '1.4rem' }}>Assistant IA</h1>
+          <p style={{ color: '#52525b', fontSize: '0.82rem' }}>
+            RAG from scratch + Groq LLaMA 3
+          </p>
+        </div>
+        <Link to="/dashboards/generated" style={{ fontSize: '0.8rem', color: '#5271ff', display: 'flex', alignItems: 'center', gap: 4 }}>
+          Mes dashboards <ExternalLink size={12} />
+        </Link>
       </div>
 
       {/* Messages */}
-      <div
-        style={{
-          flex: 1,
-          overflowY: 'auto',
-          border: '1px solid #2a2f3a',
-          borderRadius: 14,
-          padding: 16,
-          background: '#0f141c',
-          marginBottom: 14,
-        }}
-      >
+      <div style={{
+        flex: 1,
+        overflowY: 'auto',
+        borderRadius: 12,
+        padding: 18,
+        background: '#0f0f12',
+        border: '1px solid #1c1c22',
+        marginBottom: 14,
+      }}>
         {messages.map((msg, i) => (
           <div
             key={i}
             style={{
               display: 'flex',
               justifyContent: msg.role === 'user' ? 'flex-end' : 'flex-start',
-              marginBottom: 12,
+              marginBottom: 16,
             }}
           >
-            <div
-              style={{
-                maxWidth: '80%',
-                padding: '12px 14px',
-                borderRadius: 14,
-                whiteSpace: 'pre-line',
-                background: msg.role === 'user' ? '#2563eb' : '#1f2937',
-                color: 'white',
-                lineHeight: 1.5,
-              }}
-            >
-              {/* Badge du mode */}
-              {msg.modeBadge && (
-                <div style={{
-                  fontSize: 11,
-                  padding: '3px 8px',
-                  borderRadius: 6,
-                  background: msg.mode === 'agent' ? '#7f1d1d' : '#064e3b',
-                  display: 'inline-block',
-                  marginBottom: 8,
-                }}>
-                  {msg.modeBadge}
-                </div>
-              )}
-
+            <div style={{
+              maxWidth: '80%',
+              padding: '14px 16px',
+              borderRadius: msg.role === 'user' ? '14px 14px 4px 14px' : '14px 14px 14px 4px',
+              whiteSpace: 'pre-line',
+              background: msg.role === 'user' ? '#5271ff' : '#18181b',
+              color: msg.role === 'user' ? 'white' : '#e4e4e7',
+              lineHeight: 1.55,
+              fontSize: '0.88rem',
+              border: msg.role === 'user' ? 'none' : '1px solid #27272a',
+            }}>
               {msg.content}
 
               {/* Dashboard link */}
               {msg.dashboardUrl && (
-                <div style={{ marginTop: 12 }}>
-                  <Link
-                    to={msg.dashboardUrl}
-                    style={{
-                      padding: '8px 12px',
-                      borderRadius: 8,
-                      background: '#ef4444',
-                      color: 'white',
-                      textDecoration: 'none',
-                      fontWeight: 700,
-                      fontSize: 13,
-                    }}
-                  >
-                    📊 Voir le dashboard
-                  </Link>
+                <Link
+                  to={msg.dashboardUrl}
+                  style={{
+                    display: 'inline-flex', alignItems: 'center', gap: 6,
+                    marginTop: 12, padding: '8px 14px', borderRadius: 6,
+                    background: '#5271ff', color: 'white', fontSize: '0.8rem', fontWeight: 600,
+                  }}
+                >
+                  Voir le dashboard <ExternalLink size={13} />
+                </Link>
+              )}
+
+              {/* Meta info */}
+              {msg.meta && (
+                <div style={{
+                  marginTop: 10, padding: '6px 10px', background: '#09090b',
+                  borderRadius: 5, fontSize: '0.72rem', color: '#52525b', border: '1px solid #1c1c22',
+                }}>
+                  {msg.mode && (
+                    <span style={{
+                      display: 'inline-block',
+                      padding: '2px 6px',
+                      borderRadius: 3,
+                      marginRight: 8,
+                      fontSize: '0.68rem',
+                      fontWeight: 600,
+                      background: msg.mode === 'agent' ? 'rgba(52,211,153,0.1)' : msg.mode === 'database' ? 'rgba(251,191,36,0.1)' : 'rgba(82,113,255,0.1)',
+                      color: msg.mode === 'agent' ? '#34d399' : msg.mode === 'database' ? '#fbbf24' : '#5271ff',
+                      border: `1px solid ${msg.mode === 'agent' ? 'rgba(52,211,153,0.2)' : msg.mode === 'database' ? 'rgba(251,191,36,0.2)' : 'rgba(82,113,255,0.2)'}`,
+                    }}>
+                      {msg.mode === 'agent' ? 'AGENT — Collecte + Analyse + Dashboard' : msg.mode === 'database' ? 'BDD — Interrogation directe' : 'RAG — Recherche + Generation'}
+                    </span>
+                  )}
+                  {msg.meta}
+                </div>
+              )}
+
+              {/* Export PDF + Feedback */}
+              {msg.originalQuestion && (
+                <div style={{ display: 'flex', gap: 6, marginTop: 10, flexWrap: 'wrap' }}>
+                  <ExportPdfButton message={msg} />
+                  {msg.role === 'assistant' && (
+                    <button
+                      onClick={() => handleRegenerate(msg)}
+                      disabled={loading}
+                      style={{
+                        padding: '6px 10px', background: 'transparent',
+                        border: '1px solid #27272a', borderRadius: 6,
+                        color: '#71717a', fontSize: '0.72rem',
+                        display: 'inline-flex', alignItems: 'center', gap: 4,
+                        cursor: loading ? 'not-allowed' : 'pointer',
+                      }}
+                    >
+                      <RefreshCw size={12} /> Pas satisfait
+                    </button>
+                  )}
                 </div>
               )}
 
               {/* Sources */}
-              {msg.sources && msg.sources.length > 0 && (
-                <details style={{ marginTop: 10, color: '#d1d5db' }}>
-                  <summary style={{ cursor: 'pointer', fontSize: 12 }}>📋 Sources ({msg.sources.length} tweets)</summary>
-                  <div style={{ fontSize: 11, marginTop: 6 }}>
-                    {msg.sources.map((s, j) => (
-                      <div key={j} style={{ marginBottom: 4, padding: '3px 6px', background: '#111827', borderRadius: 4 }}>
-                        <strong>@{s.author}</strong> → {s.sentiment} ({Math.round((s.confidence || 0) * 100)}%)
-                      </div>
-                    ))}
-                  </div>
+              <SourcesList sources={msg.sources} />
+
+              {/* Execution log */}
+              {msg.executionLog && (
+                <details style={{ marginTop: 8, color: '#52525b' }}>
+                  <summary style={{ cursor: 'pointer', fontSize: '0.72rem', display: 'flex', alignItems: 'center', gap: 4 }}>
+                    <ChevronDown size={11} /> Actions
+                  </summary>
+                  <pre style={{ fontSize: '0.7rem', marginTop: 4, whiteSpace: 'pre-wrap', color: '#3f3f46' }}>
+                    {msg.executionLog}
+                  </pre>
                 </details>
               )}
 
-              {/* Tech info */}
-              {msg.techInfo && (
-                <details style={{ marginTop: 8, color: '#d1d5db' }}>
-                  <summary style={{ cursor: 'pointer', fontSize: 12 }}>⚙️ Détails techniques</summary>
-                  <pre style={{ fontSize: 11, marginTop: 4, whiteSpace: 'pre-wrap' }}>{msg.techInfo}</pre>
-                </details>
-              )}
-
-              {/* Plan LLM */}
+              {/* Plan */}
               {msg.plan && (
-                <details style={{ marginTop: 8, color: '#d1d5db' }}>
-                  <summary style={{ cursor: 'pointer', fontSize: 12 }}>🧠 Plan LLM</summary>
-                  <pre style={{ fontSize: 10, marginTop: 4 }}>{JSON.stringify(msg.plan, null, 2)}</pre>
+                <details style={{ marginTop: 6, color: '#52525b' }}>
+                  <summary style={{ cursor: 'pointer', fontSize: '0.72rem', display: 'flex', alignItems: 'center', gap: 4 }}>
+                    <ChevronDown size={11} /> Plan LLM
+                  </summary>
+                  <pre style={{ fontSize: '0.68rem', marginTop: 4, color: '#3f3f46' }}>
+                    {JSON.stringify(msg.plan, null, 2)}
+                  </pre>
                 </details>
               )}
             </div>
@@ -201,8 +357,9 @@ export default function Assistant() {
         ))}
 
         {loading && (
-          <div style={{ color: '#9ca3af', marginTop: 8 }}>
-            🔄 En cours (planner → agent/rag → mcp → réponse)...
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: '#52525b', marginTop: 8, fontSize: '0.84rem' }}>
+            <Loader2 size={16} style={{ animation: 'spin 1s linear infinite' }} />
+            Analyse en cours...
           </div>
         )}
         <div ref={bottomRef} />
@@ -214,33 +371,24 @@ export default function Assistant() {
           value={question}
           onChange={(e) => setQuestion(e.target.value)}
           onKeyDown={handleKeyDown}
-          placeholder="Ex: récupère les tweets avec #france / quel est le sentiment sur #trump / compare #love et #psg"
+          placeholder="Pose une question... (ex: Quel est le sentiment sur #france ?)"
           rows={2}
           style={{
-            flex: 1,
-            resize: 'none',
-            borderRadius: 12,
-            padding: 12,
-            background: '#111827',
-            color: 'white',
-            border: '1px solid #374151',
-            outline: 'none',
+            flex: 1, resize: 'none', borderRadius: 10, padding: '12px 14px',
+            background: '#0f0f12', color: '#fafafa', border: '1px solid #1c1c22',
+            outline: 'none', fontSize: '0.88rem', lineHeight: 1.5,
+            transition: 'border-color 0.15s',
           }}
+          onFocus={(e) => e.target.style.borderColor = '#5271ff'}
+          onBlur={(e) => e.target.style.borderColor = '#1c1c22'}
         />
         <button
           onClick={handleAsk}
           disabled={loading}
-          style={{
-            borderRadius: 12,
-            padding: '0 22px',
-            cursor: loading ? 'not-allowed' : 'pointer',
-            background: loading ? '#4b5563' : '#10b981',
-            color: 'white',
-            border: 'none',
-            fontWeight: 700,
-          }}
+          className="btn-primary"
+          style={{ borderRadius: 10, padding: '0 20px', opacity: loading ? 0.5 : 1 }}
         >
-          Envoyer
+          <Send size={16} />
         </button>
       </div>
     </div>

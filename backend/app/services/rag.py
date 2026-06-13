@@ -760,6 +760,79 @@ def rerank_results(
 
 
 # ============================================
+# CACHE DE REQUÊTES (optimisation vitesse)
+# ============================================
+
+class QueryCache:
+    """
+    Cache LRU from scratch pour les résultats de recherche.
+    Évite de recalculer TF-IDF + BM25 + reranking pour des questions similaires.
+    TTL configurable (défaut 5 minutes).
+    """
+
+    def __init__(self, max_size: int = 128, ttl_seconds: int = 300):
+        self.max_size = max_size
+        self.ttl_seconds = ttl_seconds
+        self._cache: Dict[str, Dict[str, Any]] = {}
+        self._access_order: List[str] = []
+        self._hits = 0
+        self._misses = 0
+
+    def _normalize_key(self, query: str) -> str:
+        return strip_accents(query.lower().strip())
+
+    def get(self, query: str) -> Optional[List[Dict[str, Any]]]:
+        key = self._normalize_key(query)
+        entry = self._cache.get(key)
+        if entry is None:
+            self._misses += 1
+            return None
+        # Vérifier TTL
+        if time.time() - entry["timestamp"] > self.ttl_seconds:
+            del self._cache[key]
+            self._misses += 1
+            return None
+        self._hits += 1
+        # Mettre à jour l'ordre d'accès
+        if key in self._access_order:
+            self._access_order.remove(key)
+        self._access_order.append(key)
+        return entry["results"]
+
+    def put(self, query: str, results: List[Dict[str, Any]]) -> None:
+        key = self._normalize_key(query)
+        # Éviction LRU si plein
+        while len(self._cache) >= self.max_size and self._access_order:
+            oldest = self._access_order.pop(0)
+            self._cache.pop(oldest, None)
+        self._cache[key] = {"results": results, "timestamp": time.time()}
+        self._access_order.append(key)
+
+    def invalidate(self) -> None:
+        """Vide le cache (après indexation de nouveaux tweets)."""
+        self._cache.clear()
+        self._access_order.clear()
+
+    @property
+    def stats(self) -> Dict[str, Any]:
+        total = self._hits + self._misses
+        return {
+            "size": len(self._cache),
+            "max_size": self.max_size,
+            "hits": self._hits,
+            "misses": self._misses,
+            "hit_rate": round(self._hits / total, 4) if total > 0 else 0.0,
+        }
+
+
+_QUERY_CACHE = QueryCache(max_size=128, ttl_seconds=300)
+
+
+def get_query_cache() -> QueryCache:
+    return _QUERY_CACHE
+
+
+# ============================================
 # SINGLETON DE L'INDEX
 # ============================================
 
@@ -821,6 +894,7 @@ def index_all_tweets(db: Session, target_id: Optional[int] = None, days: int = 3
     """
     Charge tous les tweets analysés et les indexe dans le VectorIndex.
     Remplace l'ancien index s'il existait.
+    Invalide le cache de requêtes.
     """
     start = time.time()
     tweets = load_tweets_for_index(db, target_id=target_id, days=days)
@@ -831,6 +905,9 @@ def index_all_tweets(db: Session, target_id: Optional[int] = None, days: int = 3
 
     index = get_vector_index()
     count = index.index_tweets(tweets)
+
+    # Invalider le cache (les anciens résultats ne sont plus valides)
+    get_query_cache().invalidate()
 
     elapsed = time.time() - start
     logger.info(f"[RAG] {count} tweets indexés en {elapsed:.2f}s")
@@ -852,11 +929,20 @@ def hybrid_retrieve(
 ) -> List[Dict[str, Any]]:
     """
     Point d'entrée principal du retrieval.
+    - Cache LRU pour éviter de recalculer (5min TTL)
     - Si l'index est vide, on le reconstruit (ou charge depuis disque)
     - Recherche hybride
     - Re-ranking (second passage)
     - SI pas assez de résultats ET enable_mcp : appelle le MCP Twitter en temps réel
     """
+    # Vérifier le cache
+    cache = get_query_cache()
+    cache_key = f"{query}|{target_id}|{days}"
+    cached = cache.get(cache_key)
+    if cached is not None:
+        logger.info(f"[RAG] Cache HIT pour '{query[:40]}' ({len(cached)} résultats)")
+        return cached
+
     index = get_vector_index()
 
     # Tenter de charger depuis disque si l'index est vide
@@ -891,6 +977,9 @@ def hybrid_retrieve(
                     results.append(r)
             # Re-rank le tout
             results = rerank_results(query, results, top_k=top_k)
+
+    # Mettre en cache le résultat
+    cache.put(cache_key, results)
 
     return results
 
@@ -1507,9 +1596,22 @@ async def chat(
     import re as _re
     explicit_targets = _re.findall(r"[#@][A-Za-z0-9_À-ÿ-]+", question)
     explicit_targets = [t.lower() for t in explicit_targets]
+
+    # Si pas de # ou @ explicite, chercher les mots qui matchent des cibles en BDD
+    if not explicit_targets and db:
+        try:
+            existing_targets = db.query(Target).all()
+            words = set(_re.findall(r"[A-Za-z0-9_]{2,}", question.lower()))
+            for target in existing_targets:
+                target_name = target.name.lower().lstrip("#@")
+                if target_name in words:
+                    explicit_targets.append(target.name.lower())
+        except Exception:
+            pass
+
     if explicit_targets:
         plan_targets = explicit_targets
-        logger.info(f"[RAG] Guardrail: cibles explicites utilisées: {plan_targets}")
+        logger.info(f"[RAG] Guardrail: cibles utilisées: {plan_targets}")
 
     # Construire une requête enrichie par le planner
     enriched_query = question
@@ -1528,9 +1630,21 @@ async def chat(
             for doc in index.documents
         )
 
+    # Si l'index est vide, d'abord essayer de charger depuis la BDD
+    if not index.is_fitted or index.indexed_count == 0:
+        from backend.app.services.rag import index_all_tweets as _index_from_db
+        db_count = _index_from_db(db, days=30)
+        if db_count > 0:
+            logger.info(f"[RAG] Index chargé depuis BDD: {db_count} tweets")
+            # Re-vérifier la cible
+            if plan_targets:
+                target_in_index = any(
+                    any(pt in str(doc.get("target", "")).lower() for pt in plan_targets)
+                    for doc in index.documents
+                )
+
     needs_mcp = enable_mcp and (
-        not index.is_fitted
-        or index.indexed_count == 0
+        (not index.is_fitted or index.indexed_count == 0)
         or (plan_targets and not target_in_index)
     )
 
@@ -1554,6 +1668,25 @@ async def chat(
     tweets = hybrid_retrieve(
         db, enriched_query, top_k=15, target_id=target_id, enable_mcp=False
     )
+
+    # Filtre temporel : ne garder que les tweets de la période demandée
+    if plan_days and plan_days < 30 and tweets:
+        cutoff = datetime.utcnow() - timedelta(days=plan_days)
+        filtered = []
+        for t in tweets:
+            date_str = t.get("analyzed_at") or t.get("created_at")
+            if date_str:
+                try:
+                    dt = datetime.fromisoformat(str(date_str).replace("Z", ""))
+                    if dt >= cutoff:
+                        filtered.append(t)
+                except (ValueError, TypeError):
+                    filtered.append(t)  # garder si date non parsable
+            else:
+                filtered.append(t)  # garder si pas de date
+        if filtered:  # ne pas vider complètement
+            tweets = filtered
+
     retrieve_time = time.time() - start
 
     # ============================================

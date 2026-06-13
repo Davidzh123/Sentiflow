@@ -31,7 +31,19 @@ def get_db():
 
 @celery_app.task(name="backend.app.tasks.collect_all_targets")
 def collect_all_targets():
-    """Collecte les tweets et les envoie dans Kafka"""
+    """Collecte les tweets et les envoie dans Kafka. Respecte le flag Redis de pause."""
+    import redis
+    from backend.app.config import get_settings
+
+    # Vérifier si la collecte est pausée par l'admin
+    try:
+        r = redis.from_url(get_settings().redis_url)
+        if r.get("sentiflow:collect_paused"):
+            logger.info("[CELERY:COLLECTE] ⏸ Collecte pausée par l'admin, ignorée")
+            return {"message": "Collecte pausée par l'admin"}
+    except Exception:
+        pass
+
     from backend.app.services.twitter import twitter_service
     from backend.app.kafka_producer import get_producer, send_tweet_to_kafka, flush_producer
 
@@ -459,3 +471,45 @@ def retrain_sentiment_from_feedback():
         }
     finally:
         db.close()
+
+
+# --- PIPELINE TINYGPT AUTO ---
+
+@celery_app.task(name="backend.app.tasks.retrain_tinygpt_pipeline")
+def retrain_tinygpt_pipeline():
+    """
+    Tâche planifiée tous les 2 jours.
+    Lance la pipeline d'entraînement TinyGPT :
+    export BDD → fusion → entraînement → évaluation → remplacement conditionnel.
+    """
+    import subprocess
+
+    logger.info("[CELERY:TINYGPT] Lancement pipeline de ré-entraînement TinyGPT...")
+
+    try:
+        result = subprocess.run(
+            ["python", "scripts/auto_retrain_pipeline.py", "--epochs", "4", "--synthetic-examples", "6000"],
+            capture_output=True,
+            text=True,
+            timeout=3600 * 2,  # 2h max
+            cwd="/app",
+        )
+
+        if result.returncode == 0:
+            logger.info("[CELERY:TINYGPT] Pipeline terminée avec succès")
+            logger.info(result.stdout[-1000:])
+        else:
+            logger.error(f"[CELERY:TINYGPT] Pipeline en erreur (code {result.returncode})")
+            logger.error(result.stderr[-1000:])
+
+        return {
+            "returncode": result.returncode,
+            "stdout_tail": result.stdout[-500:],
+            "stderr_tail": result.stderr[-500:],
+        }
+    except subprocess.TimeoutExpired:
+        logger.error("[CELERY:TINYGPT] Pipeline timeout (>2h)")
+        return {"error": "timeout"}
+    except Exception as e:
+        logger.error(f"[CELERY:TINYGPT] Erreur: {e}")
+        return {"error": str(e)}

@@ -78,11 +78,52 @@ app.include_router(rag_router)
 app.include_router(assistant_router)
 
 
-@app.get("/")
-def root():
-    return {"message": "SentiFlow API", "version": "1.0.0"}
-
-
 @app.get("/health")
 def health():
     return {"status": "ok"}
+
+
+# Servir le frontend React buildé
+from pathlib import Path
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
+
+FRONTEND_BUILD = Path("/app/frontend_build")
+if FRONTEND_BUILD.exists() and (FRONTEND_BUILD / "index.html").exists():
+    # Fichiers statiques JS/CSS
+    app.mount("/static", StaticFiles(directory=FRONTEND_BUILD / "static"), name="static")
+
+    # Routes frontend (React Router)
+    @app.get("/", include_in_schema=False)
+    async def serve_root():
+        return FileResponse(FRONTEND_BUILD / "index.html")
+
+    @app.get("/login", include_in_schema=False)
+    @app.get("/about", include_in_schema=False)
+    @app.get("/dashboard", include_in_schema=False)
+    @app.get("/cibles", include_in_schema=False)
+    @app.get("/alertes", include_in_schema=False)
+    @app.get("/assistant", include_in_schema=False)
+    @app.get("/rag", include_in_schema=False)
+    @app.get("/admin", include_in_schema=False)
+    @app.get("/dashboards/generated", include_in_schema=False)
+    @app.get("/dashboards/generated/{id}", include_in_schema=False)
+    async def serve_spa_routes(id: str = ""):
+        return FileResponse(FRONTEND_BUILD / "index.html")
+
+    # Fichiers racine (favicon, logo, manifest)
+    @app.get("/favicon.ico", include_in_schema=False)
+    async def favicon():
+        return FileResponse(FRONTEND_BUILD / "favicon.ico")
+
+    @app.get("/logo.png", include_in_schema=False)
+    async def logo():
+        return FileResponse(FRONTEND_BUILD / "logo.png")
+
+    @app.get("/manifest.json", include_in_schema=False)
+    async def manifest():
+        return FileResponse(FRONTEND_BUILD / "manifest.json")
+
+    @app.get("/robots.txt", include_in_schema=False)
+    async def robots():
+        return FileResponse(FRONTEND_BUILD / "robots.txt")

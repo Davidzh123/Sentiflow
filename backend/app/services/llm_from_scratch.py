@@ -334,19 +334,11 @@ class SentiflowPlanner:
         return parsed
 
     def plan(self, question: str) -> dict[str, Any]:
-        # D'abord essayer le fallback symbolique (qui connaît les questions BDD)
+        # Utiliser le fallback symbolique qui fonctionne correctement
+        # Le TinyGPT checkpoint hallucine sur les cibles non vues à l'entraînement
+        # On le réactivera après ré-entraînement avec les nouvelles données
         fallback = fallback_plan(question)
-        
-        # Si le fallback détecte une question BDD, on l'utilise directement
-        # (le TinyGPT n'est pas encore entraîné pour ça)
-        if fallback.get("intent") == "query_database":
-            return validate_plan(fallback, question)
-        
-        # Sinon essayer le TinyGPT
-        raw = self.generate_with_model(question) if self.loaded_checkpoint else None
-        if raw is None:
-            raw = fallback
-        return validate_plan(raw, question)
+        return validate_plan(fallback, question)
 
     def model_info(self) -> dict[str, Any]:
         return {

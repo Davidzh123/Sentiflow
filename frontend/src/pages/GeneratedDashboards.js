@@ -24,22 +24,19 @@ export default function GeneratedDashboards() {
       const response = await getGeneratedDashboards();
       setDashboards(response.data || []);
     } catch (err) {
-      setError(err.response?.data?.detail || 'Impossible de charger les dashboards générés.');
+      setError(err.response?.data?.detail || 'Impossible de charger les dashboards.');
     } finally {
       setLoading(false);
     }
   };
 
-  useEffect(() => {
-    loadDashboards();
-  }, []);
+  useEffect(() => { loadDashboards(); }, []);
 
   const handleDelete = async (id) => {
-    if (!window.confirm('Supprimer ce dashboard généré ?')) return;
-
+    if (!window.confirm('Supprimer ce dashboard ?')) return;
     try {
       await deleteGeneratedDashboard(id);
-      setDashboards((current) => current.filter((dashboard) => dashboard.id !== id));
+      setDashboards((current) => current.filter((d) => d.id !== id));
     } catch (err) {
       setError(err.response?.data?.detail || 'Suppression impossible.');
     }
@@ -49,13 +46,11 @@ export default function GeneratedDashboards() {
     <div className="generated-dashboard-list-page">
       <div className="generated-dashboard-list-header">
         <div>
-          <h1>📈 Dashboards générés</h1>
-          <p>
-            Retrouve ici les dashboards créés automatiquement par l'assistant LLM.
-          </p>
+          <h1>Dashboards IA</h1>
+          <p>Dashboards generes automatiquement par l'assistant.</p>
         </div>
         <Link to="/assistant" className="generated-primary-link">
-          Créer via le LLM
+          Creer via l'assistant
         </Link>
       </div>
 
@@ -65,11 +60,11 @@ export default function GeneratedDashboards() {
         <p className="generated-info-message">Chargement...</p>
       ) : dashboards.length === 0 ? (
         <div className="generated-empty-state">
-          <h2>Aucun dashboard généré</h2>
+          <h2>Aucun dashboard genere</h2>
           <p>
-            Va dans l'assistant LLM et demande par exemple :
+            Utilise l'assistant et demande par exemple :
             <br />
-            <strong>compare france et minecraft puis génère un dashboard</strong>
+            <strong>compare #france et #minecraft</strong>
           </p>
           <Link to="/assistant" className="generated-primary-link">
             Ouvrir l'assistant
@@ -83,12 +78,10 @@ export default function GeneratedDashboards() {
                 <h2>{dashboard.title}</h2>
                 <p className="generated-question">{dashboard.question}</p>
               </div>
-
               <div className="generated-card-meta">
-                <span>Créé le {formatDate(dashboard.created_at)}</span>
+                <span>Cree le {formatDate(dashboard.created_at)}</span>
                 <span>{dashboard.target_ids?.length || 0} cible(s)</span>
               </div>
-
               <div className="dashboard-list-actions">
                 <Link to={`/dashboards/generated/${dashboard.id}`} className="generated-secondary-link">
                   Voir le dashboard

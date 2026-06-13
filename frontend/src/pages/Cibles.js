@@ -1,219 +1,260 @@
-import React, { useState, useEffect } from 'react';
-import { getTargets, createTarget, deleteTarget, collectTweets, analyzeTweets, getTweets, sendSentimentFeedback } from '../services/api';
-import { Trash2 } from 'lucide-react';
-import './Cibles.css';
+import React, { useEffect, useState } from 'react';
+import { getTargets, createTarget, deleteTarget, collectTweets, analyzeTweets } from '../services/api';
+import { Plus, Trash2, Download, Cpu, Loader2, Clock } from 'lucide-react';
 
-const EMOJIS = { joie: '😊', tristesse: '😢', colere: '😠', peur: '😨', surprise: '😲', amour: '❤️', neutre: '⚪' };
-const SENTIMENT_OPTIONS = ['joie', 'amour', 'surprise', 'neutre', 'peur', 'tristesse', 'colere'];
+function getNextCollectTime() {
+  // Collecte toutes les 15 min, calculer le prochain cycle
+  const now = new Date();
+  const minutes = now.getMinutes();
+  const nextSlot = Math.ceil((minutes + 1) / 15) * 15;
+  const next = new Date(now);
+  next.setMinutes(nextSlot % 60);
+  next.setSeconds(0);
+  if (nextSlot >= 60) next.setHours(next.getHours() + 1);
+  return next;
+}
+
+function CountdownTimer() {
+  const [timeLeft, setTimeLeft] = useState('');
+
+  useEffect(() => {
+    const update = () => {
+      const next = getNextCollectTime();
+      const diff = Math.max(0, Math.floor((next - new Date()) / 1000));
+      const min = Math.floor(diff / 60);
+      const sec = diff % 60;
+      setTimeLeft(`${min}:${sec.toString().padStart(2, '0')}`);
+    };
+    update();
+    const interval = setInterval(update, 1000);
+    return () => clearInterval(interval);
+  }, []);
+
+  return (
+    <div style={{
+      display: 'flex', alignItems: 'center', gap: 6,
+      padding: '8px 14px', background: '#0f0f12', border: '1px solid #1c1c22',
+      borderRadius: 8, fontSize: '0.78rem', color: '#71717a',
+    }}>
+      <Clock size={14} color="#5271ff" />
+      <span>Prochaine collecte auto dans <strong style={{ color: '#e4e4e7' }}>{timeLeft}</strong></span>
+    </div>
+  );
+}
 
 export default function Cibles() {
   const [targets, setTargets] = useState([]);
   const [name, setName] = useState('');
   const [type, setType] = useState('hashtag');
-  const [loading, setLoading] = useState({});
-  const [tweets, setTweets] = useState({});
-  const [msg, setMsg] = useState({});
-  const [correctionRequired, setCorrectionRequired] = useState({});
+  const [loading, setLoading] = useState(false);
+  const [actionLoading, setActionLoading] = useState({});
+  const [message, setMessage] = useState('');
 
   const loadTargets = () => {
-    getTargets().then((res) => setTargets(res.data));
+    getTargets().then((res) => setTargets(res.data)).catch(() => {});
   };
 
   useEffect(() => { loadTargets(); }, []);
 
-  const handleAdd = async (e) => {
+  const handleCreate = async (e) => {
     e.preventDefault();
-    if (!name) return;
-    await createTarget(name, type);
-    setName('');
-    loadTargets();
+    if (!name.trim()) return;
+    setLoading(true);
+    try {
+      await createTarget({ name: name.trim(), target_type: type });
+      setName('');
+      loadTargets();
+      setMessage('Cible creee');
+    } catch (err) {
+      setMessage(err?.response?.data?.detail || 'Erreur');
+    } finally {
+      setLoading(false);
+      setTimeout(() => setMessage(''), 3000);
+    }
   };
 
   const handleDelete = async (id) => {
-    await deleteTarget(id);
-    loadTargets();
+    if (!window.confirm('Supprimer cette cible ?')) return;
+    try {
+      await deleteTarget(id);
+      loadTargets();
+    } catch (err) {
+      setMessage('Erreur suppression');
+    }
   };
 
   const handleCollect = async (id) => {
-    setLoading((p) => ({ ...p, [`c_${id}`]: true }));
-    setMsg((p) => ({ ...p, [id]: null }));
+    setActionLoading((prev) => ({ ...prev, [`collect_${id}`]: true }));
     try {
       const res = await collectTweets(id);
-      setMsg((p) => ({ ...p, [id]: { type: 'success', text: `${res.data.saved} tweets collectés` } }));
-      loadTweets(id);
+      setMessage(`${res.data.saved || res.data.tweets_saved || 0} tweets collectes`);
+      loadTargets();
     } catch (err) {
-      setMsg((p) => ({ ...p, [id]: { type: 'error', text: err.response?.data?.detail || 'Erreur collecte' } }));
+      setMessage(err?.response?.data?.detail || 'Erreur collecte');
+    } finally {
+      setActionLoading((prev) => ({ ...prev, [`collect_${id}`]: false }));
+      setTimeout(() => setMessage(''), 4000);
     }
-    setLoading((p) => ({ ...p, [`c_${id}`]: false }));
   };
 
   const handleAnalyze = async (id) => {
-    setLoading((p) => ({ ...p, [`a_${id}`]: true }));
-    setMsg((p) => ({ ...p, [id]: null }));
+    setActionLoading((prev) => ({ ...prev, [`analyze_${id}`]: true }));
     try {
       const res = await analyzeTweets(id);
-      setMsg((p) => ({ ...p, [id]: { type: 'success', text: `${res.data.analyzed} tweets analysés` } }));
-      loadTweets(id);
+      setMessage(`${res.data.analyzed || 0} tweets analyses`);
     } catch (err) {
-      setMsg((p) => ({ ...p, [id]: { type: 'error', text: err.response?.data?.detail || 'Erreur analyse' } }));
-    }
-    setLoading((p) => ({ ...p, [`a_${id}`]: false }));
-  };
-
-  const loadTweets = (id) => {
-    getTweets(id, 100).then((res) => setTweets((p) => ({ ...p, [id]: res.data })));
-  };
-
-  useEffect(() => {
-    targets.forEach((t) => loadTweets(t.id));
-    // eslint-disable-next-line
-  }, [targets]);
-
-  const handleRejectSentiment = async (targetId, tweetId) => {
-    setLoading((p) => ({ ...p, [`f_${tweetId}`]: true }));
-    try {
-      const res = await sendSentimentFeedback({ tweet_id: tweetId, satisfied: false });
-      setMsg((p) => ({ ...p, [targetId]: { type: 'success', text: res.data.message } }));
-      setCorrectionRequired((p) => ({ ...p, [tweetId]: !!res.data.requires_correction }));
-      loadTweets(targetId);
-    } catch (err) {
-      setMsg((p) => ({ ...p, [targetId]: { type: 'error', text: err.response?.data?.detail || 'Erreur feedback' } }));
+      setMessage(err?.response?.data?.detail || 'Erreur analyse');
     } finally {
-      setLoading((p) => ({ ...p, [`f_${tweetId}`]: false }));
+      setActionLoading((prev) => ({ ...prev, [`analyze_${id}`]: false }));
+      setTimeout(() => setMessage(''), 4000);
     }
   };
 
-  const handleCorrectSentiment = async (targetId, tweetId, correctedLabel) => {
-    if (!correctedLabel) return;
-    setLoading((p) => ({ ...p, [`f_${tweetId}`]: true }));
-    try {
-      const res = await sendSentimentFeedback({
-        tweet_id: tweetId,
-        satisfied: false,
-        corrected_label: correctedLabel,
-      });
-      setMsg((p) => ({ ...p, [targetId]: { type: 'success', text: res.data.message } }));
-      setCorrectionRequired((p) => ({ ...p, [tweetId]: false }));
-      loadTweets(targetId);
-    } catch (err) {
-      setMsg((p) => ({ ...p, [targetId]: { type: 'error', text: err.response?.data?.detail || 'Erreur correction' } }));
-    } finally {
-      setLoading((p) => ({ ...p, [`f_${tweetId}`]: false }));
-    }
+  const btnStyle = {
+    padding: '6px 10px',
+    border: '1px solid #27272a',
+    background: 'transparent',
+    color: '#a1a1aa',
+    borderRadius: 6,
+    fontSize: '0.78rem',
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: 4,
   };
 
   return (
-    <div>
-      <h1>🎯 Gérer les cibles</h1>
+    <div style={{ maxWidth: 700 }}>
+      <h1 style={{ marginBottom: 4 }}>Cibles</h1>
+      <p style={{ color: '#52525b', fontSize: '0.85rem', marginBottom: 24 }}>
+        Hashtags et comptes a surveiller
+      </p>
 
-      <form className="add-form" onSubmit={handleAdd}>
-        <input placeholder="#MachineLearning ou @elonmusk" value={name} onChange={(e) => setName(e.target.value)} />
-        <select value={type} onChange={(e) => setType(e.target.value)}>
+      {/* Timer */}
+      <CountdownTimer />
+
+      {/* Form */}
+      <form onSubmit={handleCreate} style={{ display: 'flex', gap: 10, marginBottom: 24, marginTop: 16 }}>
+        <input
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          placeholder="#hashtag ou @compte"
+          style={{
+            flex: 1,
+            padding: '10px 14px',
+            background: '#0f0f12',
+            border: '1px solid #27272a',
+            borderRadius: 8,
+            color: '#fafafa',
+            fontSize: '0.88rem',
+            outline: 'none',
+          }}
+        />
+        <select
+          value={type}
+          onChange={(e) => setType(e.target.value)}
+          style={{
+            padding: '10px 14px',
+            background: '#0f0f12',
+            border: '1px solid #27272a',
+            borderRadius: 8,
+            color: '#e4e4e7',
+            fontSize: '0.88rem',
+          }}
+        >
           <option value="hashtag">Hashtag</option>
           <option value="account">Compte</option>
         </select>
-        <button type="submit">Ajouter</button>
+        <button
+          type="submit"
+          disabled={loading}
+          style={{
+            padding: '10px 16px',
+            background: '#5271ff',
+            color: 'white',
+            border: 'none',
+            borderRadius: 8,
+            fontWeight: 600,
+            fontSize: '0.85rem',
+            display: 'flex',
+            alignItems: 'center',
+            gap: 6,
+          }}
+        >
+          <Plus size={16} /> Ajouter
+        </button>
       </form>
 
-      {targets.length === 0 ? (
-        <p className="info-msg">Aucune cible. Ajoutez un hashtag ou un compte ci-dessus.</p>
-      ) : (
-        targets.map((target) => {
-          const tw = tweets[target.id] || [];
-          const analyzed = tw.filter((t) => t.sentiment);
-          const sentimentCounts = {};
-          analyzed.forEach((t) => {
-            sentimentCounts[t.sentiment] = (sentimentCounts[t.sentiment] || 0) + 1;
-          });
-
-          return (
-            <div key={target.id} className="target-card">
-              <div className="target-header">
-                <h3>{target.target_type === 'hashtag' ? '#️⃣' : '👤'} {target.name}</h3>
-                <button className="delete-btn" onClick={() => handleDelete(target.id)}>
-                  <Trash2 size={16} />
-                </button>
-              </div>
-
-              <div className="target-actions">
-                <button onClick={() => handleCollect(target.id)} disabled={loading[`c_${target.id}`]}>
-                  {loading[`c_${target.id}`] ? '⏳' : '📥'} Collecter
-                </button>
-                <button className="primary" onClick={() => handleAnalyze(target.id)} disabled={loading[`a_${target.id}`]}>
-                  {loading[`a_${target.id}`] ? '⏳' : '🤖'} Analyser
-                </button>
-              </div>
-
-              {msg[target.id] && (
-                <div className={`msg ${msg[target.id].type}`}>{msg[target.id].text}</div>
-              )}
-
-              <div className="target-stats">
-                📈 {tw.length} tweets | ✅ {analyzed.length} analysés | ⏳ {tw.length - analyzed.length} en attente
-              </div>
-
-              {Object.keys(sentimentCounts).length > 0 && (
-                <div className="sentiment-pills">
-                  {Object.entries(sentimentCounts)
-                    .sort((a, b) => b[1] - a[1])
-                    .map(([sent, count]) => (
-                      <span key={sent} className="pill">
-                        {EMOJIS[sent] || '❓'} {sent} {Math.round((count / analyzed.length) * 100)}%
-                      </span>
-                    ))}
-                </div>
-              )}
-
-              {tw.length > 0 && (
-                <details className="tweets-list">
-                  <summary>📝 Voir les tweets ({tw.length})</summary>
-                  <table>
-                    <thead>
-                      <tr><th>Sentiment</th><th>Confiance</th><th>Tweet</th><th>Auteur</th><th>Feedback IA</th></tr>
-                    </thead>
-                    <tbody>
-                      {tw.slice(0, 20).map((t, i) => (
-                        <tr key={i}>
-                          <td>{t.sentiment ? `${EMOJIS[t.sentiment] || '❓'} ${t.sentiment}` : '⏳'}</td>
-                          <td>{t.confidence ? `${(t.confidence * 100).toFixed(0)}%` : '-'}</td>
-                          <td className="tweet-text">{t.text?.slice(0, 120)}</td>
-                          <td>@{t.author_username || '?'}</td>
-                          <td>
-                            {t.sentiment ? (
-                              <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
-                                <button
-                                  type="button"
-                                  disabled={loading[`f_${t.id}`]}
-                                  onClick={() => handleRejectSentiment(target.id, t.id)}
-                                  style={{ padding: '4px 8px', borderRadius: 6 }}
-                                >
-                                  Pas satisfait
-                                </button>
-                                {correctionRequired[t.id] && (
-                                  <select
-                                    defaultValue=""
-                                    onChange={(e) => handleCorrectSentiment(target.id, t.id, e.target.value)}
-                                    style={{ padding: '4px 6px', borderRadius: 6 }}
-                                  >
-                                    <option value="" disabled>Bonne émotion</option>
-                                    {SENTIMENT_OPTIONS.map((sentiment) => (
-                                      <option key={sentiment} value={sentiment}>{EMOJIS[sentiment] || ''} {sentiment}</option>
-                                    ))}
-                                  </select>
-                                )}
-                              </div>
-                            ) : '-'}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </details>
-              )}
-            </div>
-          );
-        })
+      {message && (
+        <div style={{
+          padding: '10px 14px',
+          background: '#0f0f12',
+          border: '1px solid #27272a',
+          borderRadius: 8,
+          marginBottom: 16,
+          fontSize: '0.82rem',
+          color: '#a1a1aa',
+        }}>
+          {message}
+        </div>
       )}
+
+      {/* List */}
+      <div>
+        {targets.map((target) => (
+          <div
+            key={target.id}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              padding: '14px 16px',
+              background: '#0f0f12',
+              border: '1px solid #1c1c22',
+              borderRadius: 10,
+              marginBottom: 8,
+            }}
+          >
+            <div>
+              <span style={{ color: '#fafafa', fontWeight: 500, fontSize: '0.9rem' }}>
+                {target.name}
+              </span>
+              <span style={{ marginLeft: 10, color: '#52525b', fontSize: '0.75rem' }}>
+                {target.target_type}
+              </span>
+            </div>
+            <div style={{ display: 'flex', gap: 6 }}>
+              <button
+                onClick={() => handleCollect(target.id)}
+                disabled={actionLoading[`collect_${target.id}`]}
+                style={btnStyle}
+              >
+                {actionLoading[`collect_${target.id}`] ? <Loader2 size={13} /> : <Download size={13} />}
+                Collecter
+              </button>
+              <button
+                onClick={() => handleAnalyze(target.id)}
+                disabled={actionLoading[`analyze_${target.id}`]}
+                style={btnStyle}
+              >
+                {actionLoading[`analyze_${target.id}`] ? <Loader2 size={13} /> : <Cpu size={13} />}
+                Analyser
+              </button>
+              <button
+                onClick={() => handleDelete(target.id)}
+                style={{ ...btnStyle, color: '#f87171', borderColor: '#3f1f1f' }}
+              >
+                <Trash2 size={13} />
+              </button>
+            </div>
+          </div>
+        ))}
+
+        {targets.length === 0 && (
+          <p style={{ color: '#52525b', textAlign: 'center', padding: 30, fontSize: '0.88rem' }}>
+            Aucune cible. Ajoute un hashtag ou un compte pour commencer.
+          </p>
+        )}
+      </div>
     </div>
   );
 }

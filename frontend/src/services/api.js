@@ -1,6 +1,6 @@
 import axios from 'axios';
 
-const API_URL = 'http://localhost:8000';
+const API_URL = '';
 
 const api = axios.create({
   baseURL: API_URL,
@@ -16,11 +16,11 @@ api.interceptors.request.use((config) => {
   return config;
 });
 
-// Rediriger vers login si 401
+// Rediriger vers login si 401 (sauf pour les routes auth)
 api.interceptors.response.use(
   (response) => response,
   (error) => {
-    if (error.response?.status === 401) {
+    if (error.response?.status === 401 && !error.config?.url?.startsWith('/auth/')) {
       localStorage.removeItem('token');
       localStorage.removeItem('user');
       window.location.href = '/login';

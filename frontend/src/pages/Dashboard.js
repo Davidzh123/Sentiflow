@@ -3,8 +3,16 @@ import { getTargets, getAnalysis } from '../services/api';
 import { PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts';
 import './Dashboard.css';
 
-const COLORS = ['#00C49F', '#FF4B4B', '#0088FE', '#FFBB28', '#FF8042', '#FF69B4'];
-const EMOJIS = { joie: '😊', tristesse: '😢', colere: '😠', peur: '😨', surprise: '😲', amour: '❤️', incertain: '❓' };
+const COLORS = ['#5271ff', '#f87171', '#38bdf8', '#fbbf24', '#34d399', '#fb923c'];
+
+const LABELS = {
+  joie: 'Joie',
+  tristesse: 'Tristesse',
+  colere: 'Colere',
+  peur: 'Peur',
+  surprise: 'Surprise',
+  amour: 'Amour',
+};
 
 export default function Dashboard() {
   const [targets, setTargets] = useState([]);
@@ -31,16 +39,20 @@ export default function Dashboard() {
 
   const chartData = analysis
     ? Object.entries(analysis.sentiment_distribution).map(([name, value]) => ({
-        name: `${EMOJIS[name] || ''} ${name}`,
+        name: LABELS[name] || name,
         value: Math.round(value * 100),
       }))
     : [];
 
   return (
     <div>
-      <h1>📊 Dashboard</h1>
+      <h1 style={{ marginBottom: 4 }}>Dashboard</h1>
+      <p style={{ color: '#52525b', fontSize: '0.85rem', marginBottom: 20 }}>
+        Visualisation des sentiments par cible
+      </p>
+
       {targets.length === 0 ? (
-        <p className="info-msg">Aucune cible configurée. Ajoutez des cibles d'abord.</p>
+        <p className="info-msg">Aucune cible configuree. Ajoute des cibles d'abord.</p>
       ) : (
         <>
           <div className="dashboard-controls">
@@ -57,19 +69,19 @@ export default function Dashboard() {
           </div>
 
           {loading ? (
-            <p>Chargement...</p>
+            <p style={{ color: '#52525b' }}>Chargement...</p>
           ) : !analysis || analysis.total_tweets === 0 ? (
-            <p className="info-msg">Pas encore de données pour cette cible</p>
+            <p className="info-msg">Pas encore de donnees pour cette cible</p>
           ) : (
             <>
               <div className="metrics">
                 <div className="metric-card">
                   <span className="metric-value">{analysis.total_tweets}</span>
-                  <span className="metric-label">Tweets analysés</span>
+                  <span className="metric-label">Tweets analyses</span>
                 </div>
                 <div className="metric-card">
                   <span className="metric-value">{analysis.period}</span>
-                  <span className="metric-label">Période</span>
+                  <span className="metric-label">Periode</span>
                 </div>
                 <div className="metric-card">
                   <span className="metric-value">{(analysis.average_confidence * 100).toFixed(0)}%</span>
@@ -79,27 +91,32 @@ export default function Dashboard() {
 
               <div className="charts">
                 <div className="chart-card">
-                  <h3>Répartition des sentiments</h3>
-                  <ResponsiveContainer width="100%" height={300}>
+                  <h3>Repartition des sentiments</h3>
+                  <ResponsiveContainer width="100%" height={280}>
                     <PieChart>
-                      <Pie data={chartData} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={100} label>
+                      <Pie data={chartData} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={95} label>
                         {chartData.map((_, i) => (
                           <Cell key={i} fill={COLORS[i % COLORS.length]} />
                         ))}
                       </Pie>
-                      <Tooltip />
+                      <Tooltip
+                        contentStyle={{ background: '#18181b', border: '1px solid #27272a', borderRadius: 8 }}
+                        labelStyle={{ color: '#e4e4e7' }}
+                      />
                     </PieChart>
                   </ResponsiveContainer>
                 </div>
 
                 <div className="chart-card">
                   <h3>Sentiments (%)</h3>
-                  <ResponsiveContainer width="100%" height={300}>
+                  <ResponsiveContainer width="100%" height={280}>
                     <BarChart data={chartData}>
-                      <XAxis dataKey="name" tick={{ fill: '#aaa', fontSize: 12 }} />
-                      <YAxis tick={{ fill: '#aaa' }} />
-                      <Tooltip />
-                      <Bar dataKey="value" fill="#ff4b4b" radius={[4, 4, 0, 0]} />
+                      <XAxis dataKey="name" tick={{ fill: '#71717a', fontSize: 11 }} />
+                      <YAxis tick={{ fill: '#71717a' }} />
+                      <Tooltip
+                        contentStyle={{ background: '#18181b', border: '1px solid #27272a', borderRadius: 8 }}
+                      />
+                      <Bar dataKey="value" fill="#5271ff" radius={[4, 4, 0, 0]} />
                     </BarChart>
                   </ResponsiveContainer>
                 </div>

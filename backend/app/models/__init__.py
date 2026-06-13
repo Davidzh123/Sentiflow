@@ -32,6 +32,11 @@ try:
 except ImportError:
     DriftLog = None
 
+try:
+    from backend.app.models.question_log import QuestionLog
+except ImportError:
+    QuestionLog = None
+
 __all__ = [
     "User", "Target", "Tweet", "Alert",
     "Account", "SentimentAggregate",
