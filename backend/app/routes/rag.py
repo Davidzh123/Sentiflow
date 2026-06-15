@@ -67,7 +67,7 @@ async def rag_chat(
     Si enable_mcp=True et que la BDD n'a pas assez de résultats,
     le RAG va chercher en temps réel sur Twitter via le serveur MCP.
     """
-    result = await chat(db, request.question, request.target_id, enable_mcp=request.enable_mcp)
+    result = await chat(db, request.question, request.target_id, enable_mcp=request.enable_mcp, user_id=current_user.id)
     return result
 
 

@@ -31,3 +31,16 @@ data/models/*
 
 # Docker
 postgres_data/
+
+# Node
+frontend/node_modules/
+node_modules/
+
+# Fichiers non essentiels exclus de app-v2
+sentiflow_fix2/
+wsl.localhost/
+.kiro/
+.pytest_cache/
+tests/
+# Modele dupliqué à la racine (le vrai est dans backend/app/ml/)
+/sentiflow_tiny_llm.pt

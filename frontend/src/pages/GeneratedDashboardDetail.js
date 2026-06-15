@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import GeneratedDashboardRenderer from '../components/GeneratedDashboardRenderer';
-import { getGeneratedDashboard } from '../services/api';
+import api, { getGeneratedDashboard } from '../services/api';
 import './GeneratedDashboards.css';
 
 export default function GeneratedDashboardDetail() {
@@ -20,6 +20,20 @@ export default function GeneratedDashboardDetail() {
       .finally(() => setLoading(false));
   }, [id]);
 
+  const handleExportPdf = async () => {
+    try {
+      const res = await api.get(`/dashboards/${id}/pdf`, { responseType: 'blob' });
+      const url = window.URL.createObjectURL(new Blob([res.data]));
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `rapport_dashboard_${id}.pdf`;
+      a.click();
+      window.URL.revokeObjectURL(url);
+    } catch (err) {
+      window.print(); // fallback
+    }
+  };
+
   const jsonDownloadUrl = useMemo(() => {
     if (!dashboard) return null;
     const blob = new Blob([JSON.stringify(dashboard, null, 2)], { type: 'application/json' });
@@ -34,7 +48,7 @@ export default function GeneratedDashboardDetail() {
         </Link>
         {dashboard && (
           <>
-            <button type="button" onClick={() => window.print()}>
+            <button type="button" onClick={handleExportPdf}>
               Exporter en PDF
             </button>
             {jsonDownloadUrl && (

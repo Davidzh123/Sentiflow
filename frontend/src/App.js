@@ -12,6 +12,8 @@ import Admin from './pages/Admin';
 import Assistant from './pages/Assistant';
 import GeneratedDashboards from './pages/GeneratedDashboards';
 import GeneratedDashboardDetail from './pages/GeneratedDashboardDetail';
+import Pricing from './pages/Pricing';
+import Support from './pages/Support';
 import './App.css';
 
 function PrivateRoute({ children }) {
@@ -34,6 +36,8 @@ function App() {
             <Route path="/alertes" element={<PrivateRoute><Alertes /></PrivateRoute>} />
             <Route path="/admin" element={<PrivateRoute><Admin /></PrivateRoute>} />
             <Route path="/assistant" element={<PrivateRoute><Assistant /></PrivateRoute>} />
+            <Route path="/pricing" element={<PrivateRoute><Pricing /></PrivateRoute>} />
+            <Route path="/support" element={<PrivateRoute><Support /></PrivateRoute>} />
             <Route path="/dashboards/generated" element={<PrivateRoute><GeneratedDashboards /></PrivateRoute>} />
             <Route path="/dashboards/generated/:id" element={<PrivateRoute><GeneratedDashboardDetail /></PrivateRoute>} />
           </Routes>

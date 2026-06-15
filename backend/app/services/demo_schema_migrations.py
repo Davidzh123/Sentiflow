@@ -35,6 +35,18 @@ def run_demo_schema_migrations(engine: Engine) -> None:
 
     statements: list[str] = []
 
+    if _has_table(engine, "users"):
+        statements.extend(
+            [
+                "ALTER TABLE users ADD COLUMN IF NOT EXISTS plan VARCHAR(20) DEFAULT 'free'",
+                "ALTER TABLE users ADD COLUMN IF NOT EXISTS ai_calls_today INTEGER DEFAULT 0",
+                "ALTER TABLE users ADD COLUMN IF NOT EXISTS ai_calls_date VARCHAR(10)",
+                "UPDATE users SET plan = 'free' WHERE plan IS NULL",
+                # Les comptes admin passent en premium par défaut
+                "UPDATE users SET plan = 'premium' WHERE is_admin = true",
+            ]
+        )
+
     if _has_table(engine, "feedbacks"):
         statements.extend(
             [

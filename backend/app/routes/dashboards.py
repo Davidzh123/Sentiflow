@@ -1,18 +1,24 @@
 from __future__ import annotations
 
+from collections import Counter
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import Response
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from backend.app.database import get_db
 from backend.app.models.generated_dashboard import GeneratedDashboard
+from backend.app.models.tweet import Tweet
 from backend.app.models.user import User
 from backend.app.services.auth import get_current_user
 
 
 router = APIRouter(prefix="/dashboards", tags=["Dashboards générés"])
+
+POSITIVE = {"joie", "amour"}
+NEGATIVE = {"colere", "tristesse", "peur"}
 
 
 class GeneratedDashboardCreate(BaseModel):
@@ -64,14 +70,16 @@ def get_generated_dashboard(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    dashboard = (
-        db.query(GeneratedDashboard)
-        .filter(
+    # Admin peut voir tous les dashboards
+    if current_user.is_admin:
+        dashboard = db.query(GeneratedDashboard).filter(
+            GeneratedDashboard.id == dashboard_id
+        ).first()
+    else:
+        dashboard = db.query(GeneratedDashboard).filter(
             GeneratedDashboard.id == dashboard_id,
             GeneratedDashboard.user_id == current_user.id,
-        )
-        .first()
-    )
+        ).first()
 
     if not dashboard:
         raise HTTPException(status_code=404, detail="Dashboard introuvable")
@@ -99,6 +107,85 @@ def create_generated_dashboard(
     db.refresh(dashboard)
 
     return serialize_dashboard(dashboard, include_config=True)
+
+
+@router.get("/{dashboard_id}/pdf")
+def export_dashboard_pdf(
+    dashboard_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Exporte un dashboard IA en PDF : un rapport "dashboard de tweets"
+    (KPIs + répartition des sentiments + tweets représentatifs + synthèse).
+    Construit à partir des tweets réels en base (robuste quel que soit le config_json).
+    """
+    if current_user.is_admin:
+        dashboard = db.query(GeneratedDashboard).filter(GeneratedDashboard.id == dashboard_id).first()
+    else:
+        dashboard = db.query(GeneratedDashboard).filter(
+            GeneratedDashboard.id == dashboard_id,
+            GeneratedDashboard.user_id == current_user.id,
+        ).first()
+    if not dashboard:
+        raise HTTPException(status_code=404, detail="Dashboard introuvable")
+
+    target_ids = dashboard.target_ids or []
+
+    # Construire la répartition par cible à partir des tweets en base
+    targets_data: list[dict[str, Any]] = []
+    representative: list[dict[str, Any]] = []
+
+    if target_ids:
+        from backend.app.models.target import Target
+        targets = db.query(Target).filter(Target.id.in_(target_ids)).all()
+        for tgt in targets:
+            tws = (
+                db.query(Tweet)
+                .filter(Tweet.target_id == tgt.id, Tweet.sentiment.isnot(None))
+                .all()
+            )
+            if not tws:
+                continue
+            counts = Counter(t.sentiment for t in tws)
+            total = sum(counts.values())
+            dist = {s: c / total for s, c in counts.items()}
+            targets_data.append({
+                "name": tgt.name,
+                "total": total,
+                "distribution": dist,
+                "positive": sum(counts.get(s, 0) for s in POSITIVE),
+                "negative": sum(counts.get(s, 0) for s in NEGATIVE),
+            })
+            # tweets représentatifs : meilleure confiance
+            for t in sorted(tws, key=lambda x: float(x.confidence or 0), reverse=True)[:4]:
+                representative.append({
+                    "author": t.author_username or "?",
+                    "sentiment": t.sentiment,
+                    "confidence": float(t.confidence or 0),
+                    "text": t.text or "",
+                })
+
+    representative.sort(key=lambda x: x["confidence"], reverse=True)
+
+    from backend.app.services.pdf_generator import generate_report_pdf
+    pdf_bytes = generate_report_pdf(
+        title=dashboard.title or "Dashboard IA",
+        question=dashboard.question or "",
+        created_at=str(dashboard.created_at) if dashboard.created_at else None,
+        targets=targets_data,
+        tweets=representative,
+        synthesis=dashboard.answer,
+    )
+    if pdf_bytes is None:
+        raise HTTPException(status_code=500, detail="Generation PDF indisponible (fpdf2 non installe)")
+
+    filename = f"rapport_dashboard_{dashboard.id}.pdf"
+    return Response(
+        content=bytes(pdf_bytes),
+        media_type="application/pdf",
+        headers={"Content-Disposition": f"attachment; filename={filename}"},
+    )
 
 
 @router.delete("/{dashboard_id}")

@@ -130,10 +130,14 @@ def extract_days(text: str, default: int = 7) -> int:
 def detect_sentiment_filter(text: str) -> str | None:
     text = re.sub(r"[#@][A-Za-z0-9_À-ÿ-]+", " ", text)
     q = normalize(text)
+    # Les groupes (négatif / positif) sont testés en premier : un mot comme
+    # "négatif" couvre plusieurs émotions, il prime sur une émotion isolée.
     aliases = {
-        "joie": ["joie", "joyeux", "heureux", "positif", "positive"],
+        "negatif": ["negatif", "negative", "negativite"],
+        "positif": ["positif", "positive", "positivite"],
+        "joie": ["joie", "joyeux", "heureux"],
         "colere": ["colere", "rage", "enerve", "fache", "haine"],
-        "tristesse": ["tristesse", "triste", "deprime", "negatif", "negative"],
+        "tristesse": ["tristesse", "triste", "deprime"],
         "peur": ["peur", "inquiet", "anxiete", "angoisse"],
         "surprise": ["surprise", "etonne", "wow"],
         "amour": ["amour", "love", "coeur"],
@@ -143,6 +147,29 @@ def detect_sentiment_filter(text: str) -> str | None:
         if any(word in q for word in words):
             return sentiment
     return None
+
+
+# Groupes de sentiments : un filtre comme "négatif" couvre plusieurs émotions.
+SENTIMENT_GROUPS = {
+    "negatif": ["colere", "tristesse", "peur"],
+    "positif": ["joie", "amour"],
+}
+
+
+def expand_sentiment_filter(sentiment_filter: str | None) -> list[str]:
+    """
+    Transforme un filtre de sentiment en liste d'émotions concrètes.
+    - "negatif" -> ["colere", "tristesse", "peur"]
+    - "positif" -> ["joie", "amour"]
+    - "colere"  -> ["colere"]   (émotion déjà précise)
+    - None / "" -> []           (pas de filtre)
+    """
+    if not sentiment_filter:
+        return []
+    sf = str(sentiment_filter).strip().lower()
+    if sf in SENTIMENT_GROUPS:
+        return list(SENTIMENT_GROUPS[sf])
+    return [sf]
 
 
 def _safe_json_from_text(text: str) -> dict[str, Any] | None:

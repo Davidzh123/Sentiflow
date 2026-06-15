@@ -118,4 +118,30 @@ export const ragEvaluate = (data) =>
 export const assistantChat = (data) =>
   api.post('/assistant/chat', data, { timeout: 240000 });
 
+// Abonnement / Plan
+export const getMyPlan = () => api.get('/auth/plan');
+
+// Analytics (dashboard interactif pro)
+export const getAnalyticsDashboard = (days = 30, targetIds = null) =>
+  api.get('/analytics/dashboard', {
+    params: { days, ...(targetIds ? { target_ids: targetIds.join(',') } : {}) },
+    timeout: 60000,
+  });
+
+// Tickets de support
+export const createTicket = (data) => api.post('/tickets', data);
+export const getMyTickets = () => api.get('/tickets/mine');
+export const adminAllTickets = (status) =>
+  api.get('/tickets/admin/all', { params: status ? { status } : {} });
+export const adminCountOpenTickets = () => api.get('/tickets/admin/count-open');
+export const adminRespondTicket = (id, data) =>
+  api.post(`/tickets/admin/${id}/respond`, data);
+
+// Admin : logs questions + gestion plans
+export const adminQuestionLogs = (limit = 100) =>
+  api.get('/admin/question-logs', { params: { limit } });
+export const adminListUsers = () => api.get('/admin/users');
+export const adminSetUserPlan = (userId, plan) =>
+  api.patch(`/admin/users/${userId}/plan`, { plan });
+
 export default api;

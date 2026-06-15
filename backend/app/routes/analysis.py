@@ -186,11 +186,14 @@ def get_sentiment_analysis(
 ):
     """Récupère l'analyse de sentiment pour une cible"""
     
-    # Vérifier que la cible appartient à l'utilisateur
-    target = db.query(Target).filter(
-        Target.id == target_id, 
-        Target.user_id == current_user.id
-    ).first()
+    # Vérifier que la cible appartient à l'utilisateur (admin voit tout)
+    if current_user.is_admin:
+        target = db.query(Target).filter(Target.id == target_id).first()
+    else:
+        target = db.query(Target).filter(
+            Target.id == target_id, 
+            Target.user_id == current_user.id
+        ).first()
     
     if not target:
         raise HTTPException(status_code=404, detail="Cible non trouvée")

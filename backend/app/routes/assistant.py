@@ -13,6 +13,8 @@ from pydantic import BaseModel, Field
 
 from backend.app.database import get_db
 from backend.app.services.rag import chat as rag_chat, index_all_tweets
+from backend.app.models.target import Target
+from backend.app.models.tweet import Tweet
 
 logger = logging.getLogger("sentiflow.assistant")
 
@@ -75,6 +77,15 @@ async def assistant_chat(
     # Récupérer le user connecté
     user_id = _get_user_id_from_request(raw_request, db)
 
+    # Quota d'appels IA + gating selon l'abonnement
+    from backend.app.models.user import User as _User
+    from backend.app.services.plans import consume_ai_call, has_feature
+    current_user_obj = db.query(_User).filter(_User.id == user_id).first()
+    can_auto_collect = True
+    if current_user_obj is not None:
+        consume_ai_call(db, current_user_obj)  # lève 429 si quota dépassé
+        can_auto_collect = has_feature(current_user_obj, "auto_collect")
+
     logger.info(f"[ASSISTANT] Question: '{question[:80]}' (user_id={user_id})")
 
     # Essayer de récupérer l'utilisateur connecté (optionnel)
@@ -115,13 +126,11 @@ async def assistant_chat(
                 mode = "database"
 
     # ============================================
-    # MODE DATABASE : interroge la BDD (rapide, pas de MCP)
+    # MODE DATABASE : interroge la BDD directement (filtré par user)
     # ============================================
     if mode == "database":
-        from backend.app.services.mcp_server import execute_tool as mcp_execute
-        import asyncio
+        from sqlalchemy import func as sqlfunc
 
-        # Déterminer le type de requête
         q_lower = question.lower()
         if "langue" in q_lower or "répartition des langue" in q_lower:
             query_type = "languages"
@@ -129,46 +138,53 @@ async def assistant_chat(
             query_type = "targets"
         elif "combien" in q_lower or "nombre" in q_lower or "total" in q_lower:
             query_type = "tweet_count"
-        elif "colère" in q_lower or "colere" in q_lower or "négatif" in q_lower or "compte" in q_lower:
+        elif "colère" in q_lower or "colere" in q_lower or "négatif" in q_lower or "negatif" in q_lower:
             query_type = "anger_by_target"
         else:
             query_type = "targets"
 
-        db_result = await mcp_execute("query_database", {"query_type": query_type})
-
-        # Formater la réponse
         answer_parts = []
+
         if query_type == "targets":
-            answer_parts.append(f"📊 {db_result.get('summary', '')}\n")
-            for t in db_result.get("targets", []):
-                answer_parts.append(f"• {t['name']} ({t['type']}) : {t['total_tweets']} tweets ({t['analyzed_tweets']} analysés)")
+            targets = db.query(Target).filter(Target.user_id == user_id).all()
+            total_tweets = 0
+            for t in targets:
+                count = db.query(sqlfunc.count(Tweet.id)).filter(Tweet.target_id == t.id).scalar() or 0
+                analyzed = db.query(sqlfunc.count(Tweet.id)).filter(Tweet.target_id == t.id, Tweet.sentiment.isnot(None)).scalar() or 0
+                total_tweets += count
+                t_type = t.target_type.value if hasattr(t.target_type, 'value') else str(t.target_type)
+                answer_parts.append(f"• {t.name} ({t_type}) : {count} tweets ({analyzed} analysés)")
+            answer_parts.insert(0, f"📊 {len(targets)} cibles suivies, {total_tweets} tweets au total\n")
+
         elif query_type == "tweet_count":
-            answer_parts.append(f"📊 Total : {db_result.get('total', 0)} tweets")
-            answer_parts.append(f"   Analysés : {db_result.get('analyzed', 0)}")
-            if db_result.get("pending", 0) > 0:
-                answer_parts.append(f"   En attente : {db_result.get('pending', 0)}")
-        elif query_type == "sentiment_stats":
-            answer_parts.append("📊 Répartition des sentiments (tous tweets) :")
-            for sent, count in sorted(db_result.get("distribution", {}).items(), key=lambda x: -x[1]):
-                pct = db_result.get("percentages", {}).get(sent, "?")
-                answer_parts.append(f"   • {sent} : {count} tweets ({pct})")
-        elif query_type == "languages":
-            answer_parts.append("📊 Répartition des langues :")
-            for lang, count in sorted(db_result.get("distribution", {}).items(), key=lambda x: -x[1]):
-                if count > 0:  # ne pas afficher les 0%
-                    pct = db_result.get("percentages", {}).get(lang, "?")
-                    answer_parts.append(f"   • {lang} : {count} tweets ({pct})")
+            target_ids = [t.id for t in db.query(Target).filter(Target.user_id == user_id).all()]
+            total = db.query(sqlfunc.count(Tweet.id)).filter(Tweet.target_id.in_(target_ids)).scalar() if target_ids else 0
+            analyzed = db.query(sqlfunc.count(Tweet.id)).filter(Tweet.target_id.in_(target_ids), Tweet.sentiment.isnot(None)).scalar() if target_ids else 0
+            pending = total - analyzed
+            answer_parts.append(f"📊 Total : {total} tweets")
+            answer_parts.append(f"   Analysés : {analyzed}")
+            if pending > 0:
+                answer_parts.append(f"   En attente : {pending}")
+
         elif query_type == "anger_by_target":
+            targets = db.query(Target).filter(Target.user_id == user_id).all()
             answer_parts.append("📊 Cibles avec le plus de tweets négatifs (colère/tristesse/peur) :")
-            for item in db_result.get("results", []):
-                answer_parts.append(f"   • {item['target']} : {item['negative_tweets']} tweets négatifs")
-            if not db_result.get("results"):
+            for t in targets:
+                neg_count = db.query(sqlfunc.count(Tweet.id)).filter(
+                    Tweet.target_id == t.id,
+                    Tweet.sentiment.in_(["colere", "tristesse", "peur"])
+                ).scalar() or 0
+                if neg_count > 0:
+                    answer_parts.append(f"   • {t.name} : {neg_count} tweets négatifs")
+            if len(answer_parts) == 1:
                 answer_parts.append("   Aucun tweet négatif trouvé.")
+
+        else:
+            answer_parts.append("Requête non reconnue.")
 
         return {
             "mode": "database",
             "answer": "\n".join(answer_parts),
-            "db_result": db_result,
             "plan": plan,
         }
 
@@ -183,7 +199,7 @@ async def assistant_chat(
                 user_id=user_id,
                 question=question,
                 generate_dashboard=True,
-                allow_auto_collect=True,
+                allow_auto_collect=can_auto_collect,
                 allow_auto_analyze=True,
             )
 
@@ -212,29 +228,68 @@ async def assistant_chat(
         question=question,
         target_id=None,
         enable_mcp=request.enable_mcp,
+        user_id=user_id,
     )
+
+    # Si pas assez de résultats et qu'on a des cibles identifiées → basculer en mode Agent
+    _targets_from_plan = (plan.get("targets") if plan else None) or []
+    if (result.get("total_retrieved", 0) < 3) and _targets_from_plan:
+        logger.info(f"[ASSISTANT] RAG insuffisant ({result.get('total_retrieved', 0)} tweets), bascule en Agent pour collecter")
+        try:
+            from backend.app.services.llm_agent import run_sentiflow_agent
+            agent_result = await run_sentiflow_agent(
+                db=db,
+                user_id=user_id,
+                question=question,
+                generate_dashboard=True,
+                allow_auto_collect=can_auto_collect,
+                allow_auto_analyze=True,
+            )
+            index_all_tweets(db)
+            return {
+                "mode": "agent",
+                "answer": agent_result.get("answer", ""),
+                "dashboard_id": agent_result.get("dashboard_id"),
+                "dashboard_url": agent_result.get("dashboard_url"),
+                "execution_log": agent_result.get("execution_log", []),
+                "plan": agent_result.get("plan"),
+                "model_info": agent_result.get("model_info"),
+                "sources": [],
+                "total_retrieved": 0,
+            }
+        except Exception as e:
+            logger.warning(f"[ASSISTANT] Bascule Agent échouée: {e}")
+            # Continuer avec le résultat RAG même partiel
 
     # Sauvegarder un dashboard généré pour le mode RAG aussi
     dashboard_id = None
     dashboard_url = None
     try:
         from backend.app.models.generated_dashboard import GeneratedDashboard
+        from backend.app.services.dashboard_builder import build_dashboard_config
         answer = result.get("answer", "")
         sources = result.get("sources", [])
-        if sources and len(sources) >= 2:
-            target_ids = list(set(s.get("target_id") for s in sources if s.get("target_id")))
+
+        # Résoudre les cibles : d'abord via les sources, sinon via les cibles du plan
+        target_ids = list({s.get("target_id") for s in sources if s.get("target_id")})
+        if not target_ids and plan and plan.get("targets"):
+            from backend.app.models.target import Target as _Target
+            names = [str(n).lower().lstrip("#@") for n in plan.get("targets", [])]
+            rows = db.query(_Target).filter(_Target.user_id == user_id).all()
+            target_ids = [r.id for r in rows if r.name.lower().lstrip("#@") in names]
+
+        if sources and len(sources) >= 2 and target_ids:
+            # Construire un VRAI dashboard (widgets) à partir des tweets en base
+            config = build_dashboard_config(db, target_ids, question)
+            config["mode"] = "rag"
+            config["metrics"] = result.get("metrics")
             dashboard = GeneratedDashboard(
                 user_id=user_id,
-                title=f"RAG: {question[:80]}",
+                title=f"Dashboard — {question[:70]}",
                 question=question,
                 answer=answer,
                 target_ids=target_ids,
-                config_json={
-                    "source_question": question,
-                    "target_ids": target_ids,
-                    "mode": "rag",
-                    "metrics": result.get("metrics"),
-                },
+                config_json=config,
                 plan_json=plan,
             )
             db.add(dashboard)
@@ -292,6 +347,7 @@ class FeedbackRequest(BaseModel):
 @router.post("/feedback")
 async def assistant_feedback(
     request: FeedbackRequest,
+    raw_request: FastAPIRequest,
     db: Session = Depends(get_db),
 ):
     """
@@ -312,7 +368,8 @@ async def assistant_feedback(
 
     if mode == "full_pipeline":
         # Relancer tout le pipeline
-        result = await rag_chat(db=db, question=request.question, enable_mcp=True)
+        user_id = _get_user_id_from_request(raw_request, db)
+        result = await rag_chat(db=db, question=request.question, enable_mcp=True, user_id=user_id)
         return {
             "mode": "full_pipeline",
             "answer": result.get("answer", ""),

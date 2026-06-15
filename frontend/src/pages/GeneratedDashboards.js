@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { deleteGeneratedDashboard, getGeneratedDashboards } from '../services/api';
+import api from '../services/api';
 import './GeneratedDashboards.css';
 
 function formatDate(value) {
@@ -21,10 +22,11 @@ export default function GeneratedDashboards() {
     setLoading(true);
     setError('');
     try {
+      // Chaque utilisateur ne voit QUE ses propres rapports IA
       const response = await getGeneratedDashboards();
       setDashboards(response.data || []);
     } catch (err) {
-      setError(err.response?.data?.detail || 'Impossible de charger les dashboards.');
+      setError(err.response?.data?.detail || 'Impossible de charger les rapports.');
     } finally {
       setLoading(false);
     }
@@ -42,12 +44,26 @@ export default function GeneratedDashboards() {
     }
   };
 
+  const handleDownloadPdf = async (id) => {
+    try {
+      const res = await api.get(`/dashboards/${id}/pdf`, { responseType: 'blob' });
+      const url = window.URL.createObjectURL(new Blob([res.data]));
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `rapport_dashboard_${id}.pdf`;
+      a.click();
+      window.URL.revokeObjectURL(url);
+    } catch (err) {
+      setError(err.response?.data?.detail || 'Export PDF impossible.');
+    }
+  };
+
   return (
     <div className="generated-dashboard-list-page">
       <div className="generated-dashboard-list-header">
         <div>
-          <h1>Dashboards IA</h1>
-          <p>Dashboards generes automatiquement par l'assistant.</p>
+          <h1>Mes rapports IA</h1>
+          <p>Rapports générés par l'assistant — exportables en PDF.</p>
         </div>
         <Link to="/assistant" className="generated-primary-link">
           Creer via l'assistant
@@ -80,12 +96,16 @@ export default function GeneratedDashboards() {
               </div>
               <div className="generated-card-meta">
                 <span>Cree le {formatDate(dashboard.created_at)}</span>
+                {dashboard.user && <span>Par {dashboard.user}</span>}
                 <span>{dashboard.target_ids?.length || 0} cible(s)</span>
               </div>
               <div className="dashboard-list-actions">
                 <Link to={`/dashboards/generated/${dashboard.id}`} className="generated-secondary-link">
                   Voir le dashboard
                 </Link>
+                <button type="button" onClick={() => handleDownloadPdf(dashboard.id)}>
+                  Export PDF
+                </button>
                 <button type="button" onClick={() => handleDelete(dashboard.id)}>
                   Supprimer
                 </button>

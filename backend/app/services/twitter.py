@@ -20,6 +20,15 @@ class TwitterService:
         if not self.api_key:
             return {"error": "TWITTER_API_KEY manquante"}
 
+        # Tracker l'usage
+        try:
+            import redis
+            from backend.app.config import get_settings
+            r = redis.from_url(get_settings().redis_url)
+            r.incr("sentiflow:usage:twitter_calls")
+        except Exception:
+            pass
+
         url = f"{self.base_url}/twitter/tweet/advanced_search"
         params = {"query": query, "queryType": "Latest"}
 

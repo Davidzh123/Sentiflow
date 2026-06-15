@@ -14,7 +14,13 @@ class User(Base):
     is_active = Column(Boolean, default=True)
     is_admin = Column(Boolean, default=False)  # Nouveau champ admin
     created_at = Column(DateTime, default=datetime.utcnow)
-    
+
+    # Abonnement : free | standard | premium
+    plan = Column(String(20), default="free", nullable=False)
+    # Quota d'appels assistant IA par jour
+    ai_calls_today = Column(Integer, default=0)
+    ai_calls_date = Column(String(10), nullable=True)  # 'YYYY-MM-DD'
+
     # Relations
     targets = relationship("Target", back_populates="user")
     alerts = relationship("Alert", back_populates="user")

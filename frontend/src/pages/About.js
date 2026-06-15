@@ -4,6 +4,8 @@ import { ArrowRight, Database, Cpu, MessageSquare, RefreshCw, BarChart3, Zap } f
 
 const TEAM = [
   { name: "David", role: "Developpeur Full Stack", desc: "Architecture backend, RAG from scratch, integration LLM" },
+  { name: "Louis Seillier", role: "ML / LLM", desc: "Planner TinyGPT from scratch, entrainement et evaluation des modeles" },
+  { name: "Rym Fouzari", role: "Data / Analyse", desc: "Pipeline de donnees, analyses statistiques, dashboards analytiques" },
 ];
 
 const TECH_STACK = [

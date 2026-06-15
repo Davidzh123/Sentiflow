@@ -67,12 +67,19 @@ function ExportPdfButton({ message }) {
   const handleExport = async () => {
     setLoading(true);
     try {
-      const res = await api.post('/assistant/export-pdf', {
-        question: message.originalQuestion || '',
-        answer: message.content || '',
-        sources: message.sources || [],
-        metrics: message.metrics || null,
-      }, { responseType: 'blob' });
+      let res;
+      if (message.dashboardId) {
+        // Rapport "dashboard de tweets" complet (à partir du dashboard sauvegardé)
+        res = await api.get(`/dashboards/${message.dashboardId}/pdf`, { responseType: 'blob' });
+      } else {
+        // Fallback : rapport à partir des sources de la réponse
+        res = await api.post('/assistant/export-pdf', {
+          question: message.originalQuestion || '',
+          answer: message.content || '',
+          sources: message.sources || [],
+          metrics: message.metrics || null,
+        }, { responseType: 'blob' });
+      }
 
       const url = window.URL.createObjectURL(new Blob([res.data]));
       const a = document.createElement('a');
@@ -104,7 +111,7 @@ function ExportPdfButton({ message }) {
       cursor: loading ? 'wait' : 'pointer',
     }}>
       {loading ? <Loader2 size={12} style={{ animation: 'spin 1s linear infinite' }} /> : <FileText size={12} />}
-      Exporter PDF
+      Exporter le dashboard PDF
     </button>
   );
 }
@@ -149,11 +156,22 @@ export default function Assistant() {
       const response = await assistantChat({ question: q, enable_mcp: true });
       const data = response.data;
 
+      // Détecter si la réponse indique pas assez de données
+      const answer = data.answer || "Pas de reponse disponible.";
+      const noData = answer.toLowerCase().includes("pas de tweet") ||
+                     answer.toLowerCase().includes("pas assez de") ||
+                     answer.toLowerCase().includes("aucun tweet") ||
+                     answer.toLowerCase().includes("pas de données") ||
+                     answer.toLowerCase().includes("pas trouvé") ||
+                     (data.total_retrieved === 0);
+
       setMessages((prev) => [
         ...prev,
         {
           role: 'assistant',
-          content: data.answer || "Pas de reponse disponible.",
+          content: noData
+            ? answer + "\n\nJe peux collecter de nouveaux tweets pour cette cible si tu veux."
+            : answer,
           meta: formatMeta(data),
           sources: data.sources,
           metrics: data.metrics,
@@ -163,6 +181,7 @@ export default function Assistant() {
           plan: data.plan,
           mode: data.mode,
           originalQuestion: q,
+          canCollect: noData,
         },
       ]);
     } catch (err) {
@@ -172,6 +191,43 @@ export default function Assistant() {
         ...prev,
         { role: 'assistant', content: `Erreur : ${msg}` },
       ]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleCollectAndRetry = async (msg) => {
+    if (loading) return;
+    setLoading(true);
+    setMessages((prev) => [...prev, { role: 'user', content: `Collecte et reanalyse : ${msg.originalQuestion}` }]);
+
+    try {
+      // Forcer le mode agent pour collecter
+      const response = await assistantChat({
+        question: `recupere les tweets et ${msg.originalQuestion}`,
+        enable_mcp: true,
+        force_mode: 'agent',
+      });
+      const data = response.data;
+      setMessages((prev) => [
+        ...prev,
+        {
+          role: 'assistant',
+          content: data.answer || "Voici les resultats apres collecte.",
+          meta: formatMeta(data),
+          sources: data.sources,
+          metrics: data.metrics,
+          executionLog: formatExecutionLog(data.execution_log),
+          dashboardId: data.dashboard_id,
+          dashboardUrl: data.dashboard_url,
+          plan: data.plan,
+          mode: data.mode,
+          originalQuestion: msg.originalQuestion,
+        },
+      ]);
+    } catch (err) {
+      const detail = err?.response?.data?.detail;
+      setMessages((prev) => [...prev, { role: 'assistant', content: `Erreur collecte : ${detail || err.message}` }]);
     } finally {
       setLoading(false);
     }
@@ -229,7 +285,7 @@ export default function Assistant() {
           </p>
         </div>
         <Link to="/dashboards/generated" style={{ fontSize: '0.8rem', color: '#5271ff', display: 'flex', alignItems: 'center', gap: 4 }}>
-          Mes dashboards <ExternalLink size={12} />
+          Mes rapports IA <ExternalLink size={12} />
         </Link>
       </div>
 
@@ -304,7 +360,7 @@ export default function Assistant() {
                 </div>
               )}
 
-              {/* Export PDF + Feedback */}
+              {/* Export PDF + Feedback + Collect */}
               {msg.originalQuestion && (
                 <div style={{ display: 'flex', gap: 6, marginTop: 10, flexWrap: 'wrap' }}>
                   <ExportPdfButton message={msg} />
@@ -321,6 +377,21 @@ export default function Assistant() {
                       }}
                     >
                       <RefreshCw size={12} /> Pas satisfait
+                    </button>
+                  )}
+                  {msg.canCollect && (
+                    <button
+                      onClick={() => handleCollectAndRetry(msg)}
+                      disabled={loading}
+                      style={{
+                        padding: '6px 10px', background: 'rgba(82,113,255,0.1)',
+                        border: '1px solid rgba(82,113,255,0.2)', borderRadius: 6,
+                        color: '#5271ff', fontSize: '0.72rem',
+                        display: 'inline-flex', alignItems: 'center', gap: 4,
+                        cursor: loading ? 'not-allowed' : 'pointer',
+                      }}
+                    >
+                      <Send size={12} /> Collecter et reessayer
                     </button>
                   )}
                 </div>

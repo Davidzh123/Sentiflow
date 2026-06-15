@@ -4,6 +4,7 @@ import { useAuth } from '../context/AuthContext';
 import {
   BarChart3, Target, Bell, Settings, LogOut,
   Home, LogIn, MessageSquare, LayoutDashboard, Info, Clock, Cpu,
+  CreditCard, LifeBuoy,
 } from 'lucide-react';
 import './Layout.css';
 
@@ -31,7 +32,13 @@ function CollectTimer() {
   useEffect(() => {
     checkStatus();
     const statusInterval = window.setInterval(checkStatus, 10000);
-    return () => window.clearInterval(statusInterval);
+    // Ecouter l'event custom pour refresh instantané
+    const onRefresh = () => checkStatus();
+    window.addEventListener('sentiflow:refresh-timer', onRefresh);
+    return () => {
+      window.clearInterval(statusInterval);
+      window.removeEventListener('sentiflow:refresh-timer', onRefresh);
+    };
   }, []);
 
   useEffect(() => {
@@ -100,14 +107,17 @@ export default function Layout({ children }) {
     navigate('/login');
   };
 
+  const features = user?.features || {};
   const navItems = user
     ? [
         { path: '/', icon: <Home size={18} />, label: 'Accueil' },
         { path: '/assistant', icon: <MessageSquare size={18} />, label: 'Assistant IA' },
-        { path: '/dashboard', icon: <BarChart3 size={18} />, label: 'Dashboard' },
-        { path: '/dashboards/generated', icon: <LayoutDashboard size={18} />, label: 'Dashboards IA' },
+        ...(features.interactive_dashboard ? [{ path: '/dashboard', icon: <BarChart3 size={18} />, label: 'Dashboard' }] : []),
+        { path: '/dashboards/generated', icon: <LayoutDashboard size={18} />, label: 'Mes rapports IA' },
         { path: '/cibles', icon: <Target size={18} />, label: 'Cibles' },
-        { path: '/alertes', icon: <Bell size={18} />, label: 'Alertes' },
+        ...(features.alerts ? [{ path: '/alertes', icon: <Bell size={18} />, label: 'Alertes' }] : []),
+        { path: '/pricing', icon: <CreditCard size={18} />, label: 'Tarifs' },
+        { path: '/support', icon: <LifeBuoy size={18} />, label: 'Support' },
         { path: '/about', icon: <Info size={18} />, label: 'A propos' },
         ...(user.is_admin ? [{ path: '/admin', icon: <Settings size={18} />, label: 'Admin' }] : []),
       ]
@@ -149,6 +159,15 @@ export default function Layout({ children }) {
               <div>
                 <span className="user-name">{user.username}</span>
                 {user.is_admin && <span className="badge">Admin</span>}
+                {user.plan && (
+                  <span className="badge" style={{
+                    marginLeft: 4,
+                    background: user.plan === 'premium' ? '#fbbf24' : user.plan === 'standard' ? '#5271ff' : '#3f3f46',
+                    color: user.plan === 'premium' ? '#1c1917' : '#fff',
+                  }}>
+                    {user.plan}
+                  </span>
+                )}
               </div>
             </div>
             <button onClick={handleLogout} className="logout-btn">

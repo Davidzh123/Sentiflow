@@ -1074,10 +1074,10 @@ async def mcp_enrich(query: str, top_k: int = 15) -> List[Dict[str, Any]]:
         return []
 
 
-def store_mcp_tweets_in_db(db: Session, tweets: List[Dict[str, Any]], query: str) -> int:
+def store_mcp_tweets_in_db(db: Session, tweets: List[Dict[str, Any]], query: str, user_id: Optional[int] = None) -> int:
     """
     Stocke les tweets récupérés par le MCP dans PostgreSQL.
-    Crée la cible si elle n'existe pas.
+    Crée la cible si elle n'existe pas, rattachée à l'utilisateur courant.
     Retourne le nombre de tweets sauvegardés.
     """
     if not tweets or not db:
@@ -1092,10 +1092,12 @@ def store_mcp_tweets_in_db(db: Session, tweets: List[Dict[str, Any]], query: str
         if not target:
             from backend.app.models.target import TargetType
             target_type = TargetType.ACCOUNT if target_name.startswith("@") else TargetType.HASHTAG
-            # Trouver un user_id existant
-            from backend.app.models.user import User
-            first_user = db.query(User).first()
-            owner_id = first_user.id if first_user else None
+            # Rattacher la cible à l'utilisateur courant si connu, sinon au premier user
+            owner_id = user_id
+            if not owner_id:
+                from backend.app.models.user import User
+                first_user = db.query(User).first()
+                owner_id = first_user.id if first_user else None
             if not owner_id:
                 return 0
             target = Target(
@@ -1106,7 +1108,7 @@ def store_mcp_tweets_in_db(db: Session, tweets: List[Dict[str, Any]], query: str
             )
             db.add(target)
             db.flush()
-            logger.info(f"[RAG-MCP] Cible créée: {target_name} (id={target.id})")
+            logger.info(f"[RAG-MCP] Cible créée: {target_name} (id={target.id}, user_id={owner_id})")
 
         # Sauvegarder chaque tweet
         for t in tweets:
@@ -1198,6 +1200,28 @@ def build_rag_prompt(question: str, tweets: List[Dict[str, Any]], intent: str = 
     # Cibles présentes dans les données
     targets_in_data = list(set(t.get("target", "?") for t in tweets))
 
+    # Statistiques PAR CIBLE (essentiel pour les comparaisons multi-cibles)
+    per_target_lines = []
+    if len(targets_in_data) > 1:
+        for tgt in targets_in_data:
+            tgt_sentiments = [
+                t["sentiment"] for t in tweets
+                if t.get("sentiment") and t.get("target", "?") == tgt
+            ]
+            tgt_total = len(tgt_sentiments)
+            if tgt_total == 0:
+                per_target_lines.append(f"- {tgt} : aucun tweet")
+                continue
+            tgt_counts = Counter(tgt_sentiments)
+            tgt_pct = ", ".join(
+                f"{k}: {v/tgt_total:.0%}" for k, v in tgt_counts.most_common()
+            )
+            per_target_lines.append(f"- {tgt} ({tgt_total} tweets) : {tgt_pct}")
+    per_target_block = (
+        "## Statistiques par cible\n" + "\n".join(per_target_lines) + "\n\n"
+        if per_target_lines else ""
+    )
+
     # Instructions DYNAMIQUES selon l'intent du planner LLM
     intent_instructions = {
         "compare": (
@@ -1240,6 +1264,7 @@ def build_rag_prompt(question: str, tweets: List[Dict[str, Any]], intent: str = 
         f"## Statistiques\n"
         f"Distribution: {stats}\n"
         f"Pourcentages: {percentages}\n\n"
+        f"{per_target_block}"
         f"## Question de l'utilisateur\n{question}\n\n"
         f"Réponds selon l'instruction ci-dessus. Cite des exemples concrets."
     )
@@ -1314,6 +1339,14 @@ def _generate_with_groq(prompt: str, api_key: str) -> str:
     Synchrone pour compatibilité avec le pipeline.
     """
     import httpx
+
+    # Tracker l'usage
+    try:
+        import redis
+        r = redis.from_url(settings.redis_url)
+        r.incr("sentiflow:usage:groq_calls")
+    except Exception:
+        pass
 
     response = httpx.post(
         "https://api.groq.com/openai/v1/chat/completions",
@@ -1552,6 +1585,7 @@ async def chat(
     question: str,
     target_id: Optional[int] = None,
     enable_mcp: bool = True,
+    user_id: Optional[int] = None,
 ) -> Dict[str, Any]:
     """
     Pipeline RAG complet FUSIONNÉ :
@@ -1620,47 +1654,60 @@ async def chat(
         enriched_query = f"{question} {' '.join(plan_targets)}"
 
     # ============================================
-    # ÉTAPE 2 : MCP si index vide OU si la cible du planner n'est pas dans l'index
+    # ÉTAPE 2 : MCP — récupère en temps réel CHAQUE cible absente de l'index
     # ============================================
-    target_in_index = False
-    if plan_targets and index.is_fitted:
-        # Vérifier si la cible est déjà dans l'index
-        target_in_index = any(
-            any(pt in str(doc.get("target", "")).lower() for pt in plan_targets)
-            for doc in index.documents
-        )
-
     # Si l'index est vide, d'abord essayer de charger depuis la BDD
     if not index.is_fitted or index.indexed_count == 0:
         from backend.app.services.rag import index_all_tweets as _index_from_db
         db_count = _index_from_db(db, days=30)
         if db_count > 0:
             logger.info(f"[RAG] Index chargé depuis BDD: {db_count} tweets")
-            # Re-vérifier la cible
-            if plan_targets:
-                target_in_index = any(
-                    any(pt in str(doc.get("target", "")).lower() for pt in plan_targets)
-                    for doc in index.documents
-                )
 
-    needs_mcp = enable_mcp and (
-        (not index.is_fitted or index.indexed_count == 0)
-        or (plan_targets and not target_in_index)
-    )
+    def _target_present_in_index(tgt: str) -> bool:
+        """Vrai si au moins un document de l'index appartient à la cible donnée."""
+        if not index.is_fitted:
+            return False
+        needle = tgt.lower().lstrip("#@")
+        for doc in index.documents:
+            doc_target = str(doc.get("target", "")).lower().lstrip("#@")
+            if not doc_target:
+                continue
+            if needle in doc_target or doc_target in needle:
+                return True
+        return False
 
-    if needs_mcp:
-        mcp_query = plan_targets[0] if plan_targets else question
-        logger.info(f"[RAG] Appel MCP pour '{mcp_query}' (target_in_index={target_in_index})...")
-        mcp_tweets = await mcp_enrich(mcp_query, top_k=15)
-        if mcp_tweets:
-            mcp_used = True
-            mcp_tweets_count = len(mcp_tweets)
-            # Stocker en BDD (persistance)
-            store_mcp_tweets_in_db(db, mcp_tweets, mcp_query)
-            # Ajouter à l'index existant
-            all_docs = index.documents + mcp_tweets if index.is_fitted else mcp_tweets
-            index.index_tweets(all_docs)
-            logger.info(f"[RAG] {mcp_tweets_count} tweets MCP indexés + stockés en BDD")
+    # Les cibles à vérifier : celles du plan, sinon la question brute si l'index est vide
+    mcp_fetched_targets: List[str] = []
+    if plan_targets:
+        targets_to_fetch = list(plan_targets)
+    elif not index.is_fitted or index.indexed_count == 0:
+        targets_to_fetch = [question]
+    else:
+        targets_to_fetch = []
+
+    if enable_mcp:
+        for tgt in targets_to_fetch:
+            # Pour une cible explicite (#x / @x), on ne va chercher que si elle manque.
+            is_explicit_target = tgt in plan_targets
+            if is_explicit_target and _target_present_in_index(tgt):
+                continue
+            logger.info(f"[RAG] Cible absente de l'index: '{tgt}' → appel MCP temps réel...")
+            mcp_tweets = await mcp_enrich(tgt, top_k=15)
+            if mcp_tweets:
+                mcp_used = True
+                mcp_tweets_count += len(mcp_tweets)
+                if is_explicit_target:
+                    mcp_fetched_targets.append(tgt)
+                # Stocker en BDD (persistance) — rattaché à l'utilisateur courant
+                store_mcp_tweets_in_db(db, mcp_tweets, tgt, user_id=user_id)
+                # Ajouter à l'index existant
+                all_docs = index.documents + mcp_tweets if index.is_fitted else mcp_tweets
+                index.index_tweets(all_docs)
+                logger.info(f"[RAG] {len(mcp_tweets)} tweets MCP indexés + stockés pour '{tgt}'")
+
+        # Le cache de retrieval doit être invalidé car l'index vient de changer
+        if mcp_used:
+            get_query_cache().invalidate()
 
     # ============================================
     # ÉTAPE 3 : HYBRID RETRIEVE (from scratch)
@@ -1668,6 +1715,45 @@ async def chat(
     tweets = hybrid_retrieve(
         db, enriched_query, top_k=15, target_id=target_id, enable_mcp=False
     )
+
+    # Filtre par cibles du planner : ne garder que les tweets des cibles demandées
+    if plan_targets and tweets:
+        filtered_by_target = []
+        for t in tweets:
+            tweet_target = str(t.get("target", "")).lower().lstrip("#@")
+            if any(pt.lower().lstrip("#@") in tweet_target or tweet_target in pt.lower().lstrip("#@") for pt in plan_targets):
+                filtered_by_target.append(t)
+        if filtered_by_target:
+            tweets = filtered_by_target
+
+    # Filtre par SENTIMENT (négatif / positif / émotion précise demandée)
+    from backend.app.services.llm_from_scratch import expand_sentiment_filter
+    wanted_sentiments = expand_sentiment_filter(plan_sentiment_filter)
+    if wanted_sentiments:
+        sent_filtered = [
+            t for t in tweets
+            if str(t.get("sentiment", "")).lower() in wanted_sentiments
+        ]
+        # Si le top-K du retrieval ne contenait pas ce sentiment, on le cherche
+        # directement dans l'index complet (le tweet existe peut-être mais n'était
+        # pas dans les 15 plus similaires).
+        if not sent_filtered and index.is_fitted:
+            pool = []
+            for doc in index.documents:
+                if str(doc.get("sentiment", "")).lower() not in wanted_sentiments:
+                    continue
+                doc_target = str(doc.get("target", "")).lower().lstrip("#@")
+                if plan_targets and not any(
+                    pt.lower().lstrip("#@") in doc_target or doc_target in pt.lower().lstrip("#@")
+                    for pt in plan_targets
+                ):
+                    continue
+                pool.append(doc)
+            if pool:
+                sent_filtered = rerank_results(enriched_query, pool, top_k=15)
+        # On applique le filtre (quitte à renvoyer une liste vide : dans ce cas,
+        # la réponse "aucun tweet de ce type" sera alors réellement exacte).
+        tweets = sent_filtered
 
     # Filtre temporel : ne garder que les tweets de la période demandée
     if plan_days and plan_days < 30 and tweets:
@@ -1690,21 +1776,22 @@ async def chat(
     retrieve_time = time.time() - start
 
     # ============================================
-    # ÉTAPE 4 : MCP si pas assez de résultats
+    # ÉTAPE 4 : MCP si pas assez de résultats (filet de sécurité, multi-cibles)
     # ============================================
-    if enable_mcp and not mcp_used and len(tweets) < 3:
-        mcp_query = plan_targets[0] if plan_targets else question
-        logger.info(f"[RAG] {len(tweets)} résultats, appel MCP pour '{mcp_query}'...")
-        mcp_tweets = await mcp_enrich(mcp_query, top_k=15)
-        if mcp_tweets:
-            mcp_used = True
-            mcp_tweets_count = len(mcp_tweets)
-            store_mcp_tweets_in_db(db, mcp_tweets, mcp_query)
-            existing_ids = {r.get("id") for r in tweets}
-            for t in mcp_tweets:
-                if t.get("id") not in existing_ids:
-                    tweets.append(t)
-            tweets = rerank_results(enriched_query, tweets, top_k=15)
+    if enable_mcp and len(tweets) < 3:
+        fallback_queries = list(plan_targets) if plan_targets else [question]
+        for mcp_query in fallback_queries:
+            logger.info(f"[RAG] {len(tweets)} résultats, appel MCP pour '{mcp_query}'...")
+            mcp_tweets = await mcp_enrich(mcp_query, top_k=15)
+            if mcp_tweets:
+                mcp_used = True
+                mcp_tweets_count += len(mcp_tweets)
+                store_mcp_tweets_in_db(db, mcp_tweets, mcp_query, user_id=user_id)
+                existing_ids = {r.get("id") for r in tweets}
+                for t in mcp_tweets:
+                    if t.get("id") not in existing_ids:
+                        tweets.append(t)
+        tweets = rerank_results(enriched_query, tweets, top_k=15)
         retrieve_time = time.time() - start
 
     # ============================================
@@ -1723,6 +1810,14 @@ async def chat(
     gen_start = time.time()
     answer = generate_answer_from_scratch(question, tweets, prompt)
     gen_time = time.time() - gen_start
+
+    # Si des cibles étaient nouvelles (aucune donnée en base), on le signale dans le chat
+    if mcp_fetched_targets:
+        note = (
+            f"ℹ️ Nouvelle(s) cible(s) {', '.join(mcp_fetched_targets)} : "
+            f"aucune donnée en base, recherche effectuée en temps réel via MCP.\n\n"
+        )
+        answer = note + answer
 
     # ============================================
     # ÉTAPE 8 : MÉTRIQUES RÉPONSE
@@ -1746,6 +1841,7 @@ async def chat(
         "from_scratch": True,
         "mcp_used": mcp_used,
         "mcp_tweets_fetched": mcp_tweets_count,
+        "mcp_fetched_targets": mcp_fetched_targets,
         "generator": _get_generator_name(),
         "plan": plan,  # Le plan du LLM from scratch
         "metrics": {

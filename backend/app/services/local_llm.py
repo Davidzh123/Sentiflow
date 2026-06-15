@@ -492,7 +492,10 @@ def get_representative_tweets(
     )
 
     if sentiment_filter:
-        query = query.filter(Tweet.sentiment == sentiment_filter)
+        from backend.app.services.llm_from_scratch import expand_sentiment_filter
+        wanted = expand_sentiment_filter(sentiment_filter)
+        if wanted:
+            query = query.filter(Tweet.sentiment.in_(wanted))
 
     tweets = query.order_by(Tweet.confidence.desc().nullslast()).limit(limit).all()
 

@@ -34,6 +34,12 @@ def create_alert(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    from backend.app.services.plans import require_feature
+    require_feature(
+        current_user, "alerts",
+        "Les alertes sont réservées à l'offre Premium.",
+    )
+
     target = (
         db.query(Target)
         .filter(Target.id == data.target_id, Target.user_id == current_user.id)

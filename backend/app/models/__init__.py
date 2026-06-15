@@ -37,10 +37,16 @@ try:
 except ImportError:
     QuestionLog = None
 
+try:
+    from backend.app.models.ticket import Ticket
+except ImportError:
+    Ticket = None
+
 __all__ = [
     "User", "Target", "Tweet", "Alert",
     "Account", "SentimentAggregate",
     "Dashboard", "DashboardExport", "Feedback",
     "GeneratedDashboard", "LLMFeedback",
     "TweetEmbedding", "PredictionLog", "DriftLog",
+    "QuestionLog", "Ticket",
 ]

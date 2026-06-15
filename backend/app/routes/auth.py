@@ -59,6 +59,7 @@ def register(data: RegisterRequest, db: Session = Depends(get_db)):
             "email": user.email,
             "username": user.username,
             "is_admin": user.is_admin,
+            "plan": getattr(user, "plan", "free") or "free",
         },
     }
 
@@ -83,15 +84,31 @@ def login(data: LoginRequest, db: Session = Depends(get_db)):
             "email": user.email,
             "username": user.username,
             "is_admin": user.is_admin,
+            "plan": getattr(user, "plan", "free") or "free",
         },
     }
 
 
 @router.get("/me")
 def me(current_user: User = Depends(get_current_user)):
+    from backend.app.services.plans import get_features, get_ai_quota_status
     return {
         "id": current_user.id,
         "email": current_user.email,
         "username": current_user.username,
         "is_admin": current_user.is_admin,
+        "plan": getattr(current_user, "plan", "free") or "free",
+        "features": get_features(current_user),
+        "quota": get_ai_quota_status(current_user),
+    }
+
+
+@router.get("/plan")
+def my_plan(current_user: User = Depends(get_current_user)):
+    """Détail de l'offre de l'utilisateur + quota du jour + catalogue des offres."""
+    from backend.app.services.plans import get_features, get_ai_quota_status, PLANS
+    return {
+        "current": get_features(current_user),
+        "quota": get_ai_quota_status(current_user),
+        "catalog": PLANS,
     }
