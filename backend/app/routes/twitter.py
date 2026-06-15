@@ -1,14 +1,20 @@
 import logging
 import time
-from fastapi import APIRouter, Depends, HTTPException
+from datetime import datetime
+
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
+
 from backend.app.database import get_db
 from backend.app.models.user import User
 from backend.app.models.target import Target
 from backend.app.models.tweet import Tweet
 from backend.app.services.auth import get_current_user
-from backend.app.services.twitter import twitter_service
-from datetime import datetime
+from backend.app.services.twitter import (
+    extract_tweets,
+    parse_tweet_datetime,
+    twitter_service,
+)
 
 logger = logging.getLogger("sentiflow.twitter")
 logger.setLevel(logging.DEBUG)
@@ -19,11 +25,14 @@ router = APIRouter(prefix="/twitter", tags=["Twitter"])
 @router.post("/collect/{target_id}")
 async def collect_tweets(
     target_id: int,
+    days: int = Query(0, ge=0, le=30),
+    max_tweets: int = Query(20, ge=20, le=1000),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    """Collecte les tweets pour une cible donnée"""
+    """Collecte les tweets récents ou ceux d'une période donnée."""
     start_time = time.time()
+    effective_max_tweets = max_tweets if days > 0 else 20
 
     # Vérifier que la cible appartient à l'utilisateur
     target = db.query(Target).filter(
@@ -41,11 +50,19 @@ async def collect_tweets(
     try:
         if target.target_type.value == "hashtag":
             logger.info(f"[COLLECTE] 🔍 Recherche tweets pour hashtag: {target.query}")
-            result = await twitter_service.search_tweets(target.query)
+            result = await twitter_service.search_tweets(
+                target.query,
+                days=days,
+                max_tweets=effective_max_tweets,
+            )
         else:
             username = target.name.lstrip("@")
             logger.info(f"[COLLECTE] 👤 Récupération tweets de @{username}")
-            result = await twitter_service.get_user_tweets(target.name)
+            result = await twitter_service.get_user_tweets(
+                target.name,
+                days=days,
+                max_tweets=effective_max_tweets,
+            )
     except Exception as e:
         logger.error(f"[COLLECTE] ❌ Erreur appel API Twitter pour '{target.name}': {e}")
         raise HTTPException(status_code=500, detail=f"Erreur API Twitter: {str(e)}")
@@ -57,27 +74,38 @@ async def collect_tweets(
         logger.error(f"[COLLECTE] ❌ Erreur Twitter API: {result['error']} (status={result.get('status', '?')})")
         raise HTTPException(status_code=400, detail=f"Erreur Twitter: {result['error']}")
 
-    # Extraire les tweets (différents formats possibles)
-    tweets_data = result.get("tweets", result.get("data", []))
-
-    # Format compte: data.data.tweets (dict imbriqué)
-    if isinstance(tweets_data, dict):
-        tweets_data = tweets_data.get("tweets", tweets_data.get("results", []))
-
-    # S'assurer que c'est une liste
-    if not isinstance(tweets_data, list):
-        logger.warning(f"[COLLECTE] ⚠ Format inattendu de la réponse Twitter (type={type(tweets_data).__name__})")
-        tweets_data = []
+    tweets_data = extract_tweets(result)
 
     logger.info(f"[COLLECTE] 📦 {len(tweets_data)} tweets reçus de l'API Twitter")
 
     if not tweets_data:
         logger.warning(f"[COLLECTE] ⚠ Aucun tweet retourné par l'API pour '{target.name}'")
-        return {"message": "Aucun tweet trouvé", "total_fetched": 0, "saved": 0}
+        return {
+            "message": "Aucun tweet trouvé",
+            "total_fetched": 0,
+            "saved": 0,
+            "period_days": days,
+            "max_tweets": effective_max_tweets,
+            "api_requests": result.get("api_requests", 0),
+        }
 
     saved_count = 0
     duplicates = 0
     skipped = 0
+
+    tweet_ids = [
+        str(tweet_data.get("id") or tweet_data.get("id_str") or tweet_data.get("tweetId"))
+        for tweet_data in tweets_data
+        if tweet_data.get("id") or tweet_data.get("id_str") or tweet_data.get("tweetId")
+    ]
+    existing_ids = {
+        twitter_id
+        for (twitter_id,) in (
+            db.query(Tweet.twitter_id)
+            .filter(Tweet.twitter_id.in_(tweet_ids))
+            .all()
+        )
+    } if tweet_ids else set()
 
     for i, tweet_data in enumerate(tweets_data):
         # S'assurer que tweet_data est un dict
@@ -92,8 +120,7 @@ async def collect_tweets(
             skipped += 1
             continue
 
-        existing = db.query(Tweet).filter(Tweet.twitter_id == str(twitter_id)).first()
-        if existing:
+        if str(twitter_id) in existing_ids:
             duplicates += 1
             continue
 
@@ -122,9 +149,10 @@ async def collect_tweets(
             text=text,
             author_id=str(author_id) if author_id else None,
             author_username=author_username,
-            tweet_created_at=datetime.utcnow()
+            tweet_created_at=parse_tweet_datetime(tweet_data) or datetime.utcnow()
         )
         db.add(tweet)
+        existing_ids.add(str(twitter_id))
         saved_count += 1
 
         if saved_count <= 3:
@@ -159,6 +187,10 @@ async def collect_tweets(
         "saved": saved_count,
         "duplicates": duplicates,
         "skipped": skipped,
+        "period_days": days,
+        "max_tweets": effective_max_tweets,
+        "api_requests": result.get("api_requests", 0),
+        "truncated": bool(result.get("truncated")),
         "duration_seconds": round(total_time, 2)
     }
 

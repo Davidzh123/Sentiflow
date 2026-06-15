@@ -26,7 +26,7 @@ from backend.app.models.target import Target, TargetType
 from backend.app.models.tweet import Tweet, VALID_SENTIMENTS
 from backend.app.services.llm_from_scratch import get_planner
 from backend.app.services.local_llm import ask_local_llm
-from backend.app.services.twitter import twitter_service
+from backend.app.services.twitter import parse_tweet_datetime, twitter_service
 
 # Modèle de sentiment existant du projet.
 from services.sentiment.model import get_analyzer
@@ -264,17 +264,28 @@ def _extract_tweets_data(api_result: dict[str, Any]) -> list[dict[str, Any]]:
 
 
 def _tweet_created_at(tweet_data: dict[str, Any]) -> datetime:
-    # L'API utilisée renvoie parfois des formats différents. Pour rester robuste,
-    # on stocke au minimum la date de collecte.
-    return datetime.utcnow()
+    return parse_tweet_datetime(tweet_data) or datetime.utcnow()
 
 
-async def collect_for_target(db: Session, target: Target) -> dict[str, Any]:
+async def collect_for_target(
+    db: Session,
+    target: Target,
+    days: int = 0,
+    max_tweets: int = 20,
+) -> dict[str, Any]:
     start = time.time()
     if target.target_type.value == "hashtag":
-        api_result = await twitter_service.search_tweets(target.query)
+        api_result = await twitter_service.search_tweets(
+            target.query,
+            days=days,
+            max_tweets=max_tweets,
+        )
     else:
-        api_result = await twitter_service.get_user_tweets(target.name)
+        api_result = await twitter_service.get_user_tweets(
+            target.name,
+            days=days,
+            max_tweets=max_tweets,
+        )
 
     if "error" in api_result:
         raise AgentError(f"Erreur Twitter pour {target.name}: {api_result['error']}")
@@ -334,8 +345,40 @@ async def collect_for_target(db: Session, target: Target) -> dict[str, Any]:
         "saved": saved,
         "duplicates": duplicates,
         "skipped": skipped,
+        "period_days": days,
+        "max_tweets": max_tweets if days > 0 else 20,
+        "api_requests": api_result.get("api_requests", 0),
+        "truncated": bool(api_result.get("truncated")),
         "duration_seconds": round(time.time() - start, 2),
     }
+
+
+def _question_requests_historical_collection(question: str) -> bool:
+    normalized = (question or "").lower()
+    return bool(
+        re.search(r"\b\d+\s*(j|jour|jours|semaine|semaines|mois)\b", normalized)
+        or any(
+            marker in normalized
+            for marker in (
+                "derniers jours",
+                "dernieres jours",
+                "dernières jours",
+                "sur plusieurs jours",
+                "sur la semaine",
+                "cette semaine",
+                "depuis",
+            )
+        )
+    )
+
+
+def _collection_options(question: str, plan: dict[str, Any], explicit_days: int | None) -> tuple[int, int]:
+    if explicit_days is None and not _question_requests_historical_collection(question):
+        return 0, 20
+
+    collection_days = max(1, min(30, int(plan.get("days", explicit_days or 7))))
+    max_tweets = min(1000, max(100, collection_days * 100))
+    return collection_days, max_tweets
 
 
 def _clean_text_for_analysis(text: str) -> str:
@@ -497,6 +540,7 @@ async def run_sentiflow_agent(
     if force_refresh is not None:
         plan["force_refresh"] = bool(force_refresh)
 
+    collection_days, collection_max_tweets = _collection_options(question, plan, days)
     requested_targets = plan.get("targets", []) or []
     execution_log: list[dict[str, Any]] = []
     selected_targets: list[Target] = []
@@ -562,7 +606,12 @@ async def run_sentiflow_agent(
         )
 
         if should_collect:
-            collect_result = await collect_for_target(db, target)
+            collect_result = await collect_for_target(
+                db,
+                target,
+                days=collection_days,
+                max_tweets=collection_max_tweets,
+            )
             collect_result["action"] = "collect_tweets"
             collect_result["target"] = target.name
             execution_log.append(collect_result)

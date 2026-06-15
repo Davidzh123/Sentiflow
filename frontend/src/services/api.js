@@ -54,8 +54,14 @@ export const deleteTarget = (id) => api.delete(`/targets/${id}`);
 
 // Twitter
 export const verifyTarget = (id) => api.get(`/twitter/verify/${id}`);
-export const collectTweets = (id) =>
-  api.post(`/twitter/collect/${id}`, null, { timeout: 120000 });
+export const collectTweets = (id, options = {}) =>
+  api.post(`/twitter/collect/${id}`, null, {
+    params: {
+      days: options.days ?? 0,
+      max_tweets: options.maxTweets ?? 20,
+    },
+    timeout: 300000,
+  });
 
 // Analysis
 export const analyzeTweets = (id) =>

@@ -1,0 +1,905 @@
+diff -ruN a/backend/app/routes/twitter.py b/backend/app/routes/twitter.py
+--- a/backend/app/routes/twitter.py	2026-06-15 20:19:11.000000000 +0100
++++ b/backend/app/routes/twitter.py	2026-06-15 20:27:46.752196727 +0100
+@@ -1,14 +1,20 @@
+-import logging
+-import time
+-from fastapi import APIRouter, Depends, HTTPException
+-from sqlalchemy.orm import Session
+-from backend.app.database import get_db
+-from backend.app.models.user import User
+-from backend.app.models.target import Target
+-from backend.app.models.tweet import Tweet
+-from backend.app.services.auth import get_current_user
+-from backend.app.services.twitter import twitter_service
+-from datetime import datetime
++import logging
++import time
++from datetime import datetime
++
++from fastapi import APIRouter, Depends, HTTPException, Query
++from sqlalchemy.orm import Session
++
++from backend.app.database import get_db
++from backend.app.models.user import User
++from backend.app.models.target import Target
++from backend.app.models.tweet import Tweet
++from backend.app.services.auth import get_current_user
++from backend.app.services.twitter import (
++    extract_tweets,
++    parse_tweet_datetime,
++    twitter_service,
++)
+ 
+ logger = logging.getLogger("sentiflow.twitter")
+ logger.setLevel(logging.DEBUG)
+@@ -17,13 +23,16 @@
+ 
+ 
+ @router.post("/collect/{target_id}")
+-async def collect_tweets(
+-    target_id: int,
+-    db: Session = Depends(get_db),
+-    current_user: User = Depends(get_current_user)
+-):
+-    """Collecte les tweets pour une cible donnée"""
+-    start_time = time.time()
++async def collect_tweets(
++    target_id: int,
++    days: int = Query(0, ge=0, le=30),
++    max_tweets: int = Query(20, ge=20, le=1000),
++    db: Session = Depends(get_db),
++    current_user: User = Depends(get_current_user)
++):
++    """Collecte les tweets récents ou ceux d'une période donnée."""
++    start_time = time.time()
++    effective_max_tweets = max_tweets if days > 0 else 20
+ 
+     # Vérifier que la cible appartient à l'utilisateur
+     target = db.query(Target).filter(
+@@ -39,13 +48,21 @@
+ 
+     # Collecter selon le type
+     try:
+-        if target.target_type.value == "hashtag":
+-            logger.info(f"[COLLECTE] 🔍 Recherche tweets pour hashtag: {target.query}")
+-            result = await twitter_service.search_tweets(target.query)
+-        else:
+-            username = target.name.lstrip("@")
+-            logger.info(f"[COLLECTE] 👤 Récupération tweets de @{username}")
+-            result = await twitter_service.get_user_tweets(target.name)
++        if target.target_type.value == "hashtag":
++            logger.info(f"[COLLECTE] 🔍 Recherche tweets pour hashtag: {target.query}")
++            result = await twitter_service.search_tweets(
++                target.query,
++                days=days,
++                max_tweets=effective_max_tweets,
++            )
++        else:
++            username = target.name.lstrip("@")
++            logger.info(f"[COLLECTE] 👤 Récupération tweets de @{username}")
++            result = await twitter_service.get_user_tweets(
++                target.name,
++                days=days,
++                max_tweets=effective_max_tweets,
++            )
+     except Exception as e:
+         logger.error(f"[COLLECTE] ❌ Erreur appel API Twitter pour '{target.name}': {e}")
+         raise HTTPException(status_code=500, detail=f"Erreur API Twitter: {str(e)}")
+@@ -57,29 +74,40 @@
+         logger.error(f"[COLLECTE] ❌ Erreur Twitter API: {result['error']} (status={result.get('status', '?')})")
+         raise HTTPException(status_code=400, detail=f"Erreur Twitter: {result['error']}")
+ 
+-    # Extraire les tweets (différents formats possibles)
+-    tweets_data = result.get("tweets", result.get("data", []))
+-
+-    # Format compte: data.data.tweets (dict imbriqué)
+-    if isinstance(tweets_data, dict):
+-        tweets_data = tweets_data.get("tweets", tweets_data.get("results", []))
+-
+-    # S'assurer que c'est une liste
+-    if not isinstance(tweets_data, list):
+-        logger.warning(f"[COLLECTE] ⚠ Format inattendu de la réponse Twitter (type={type(tweets_data).__name__})")
+-        tweets_data = []
++    tweets_data = extract_tweets(result)
+ 
+     logger.info(f"[COLLECTE] 📦 {len(tweets_data)} tweets reçus de l'API Twitter")
+ 
+     if not tweets_data:
+         logger.warning(f"[COLLECTE] ⚠ Aucun tweet retourné par l'API pour '{target.name}'")
+-        return {"message": "Aucun tweet trouvé", "total_fetched": 0, "saved": 0}
++        return {
++            "message": "Aucun tweet trouvé",
++            "total_fetched": 0,
++            "saved": 0,
++            "period_days": days,
++            "max_tweets": effective_max_tweets,
++            "api_requests": result.get("api_requests", 0),
++        }
+ 
+     saved_count = 0
+     duplicates = 0
+     skipped = 0
+ 
+-    for i, tweet_data in enumerate(tweets_data):
++    tweet_ids = [
++        str(tweet_data.get("id") or tweet_data.get("id_str") or tweet_data.get("tweetId"))
++        for tweet_data in tweets_data
++        if tweet_data.get("id") or tweet_data.get("id_str") or tweet_data.get("tweetId")
++    ]
++    existing_ids = {
++        twitter_id
++        for (twitter_id,) in (
++            db.query(Tweet.twitter_id)
++            .filter(Tweet.twitter_id.in_(tweet_ids))
++            .all()
++        )
++    } if tweet_ids else set()
++
++    for i, tweet_data in enumerate(tweets_data):
+         # S'assurer que tweet_data est un dict
+         if not isinstance(tweet_data, dict):
+             skipped += 1
+@@ -92,10 +120,9 @@
+             skipped += 1
+             continue
+ 
+-        existing = db.query(Tweet).filter(Tweet.twitter_id == str(twitter_id)).first()
+-        if existing:
+-            duplicates += 1
+-            continue
++        if str(twitter_id) in existing_ids:
++            duplicates += 1
++            continue
+ 
+         # Extraire le texte (tronquer à 1000 caractères)
+         text = tweet_data.get("text") or tweet_data.get("full_text") or tweet_data.get("content", "")
+@@ -122,10 +149,11 @@
+             text=text,
+             author_id=str(author_id) if author_id else None,
+             author_username=author_username,
+-            tweet_created_at=datetime.utcnow()
+-        )
+-        db.add(tweet)
+-        saved_count += 1
++            tweet_created_at=parse_tweet_datetime(tweet_data) or datetime.utcnow()
++        )
++        db.add(tweet)
++        existing_ids.add(str(twitter_id))
++        saved_count += 1
+ 
+         if saved_count <= 3:
+             preview = text[:80].replace("\n", " ")
+@@ -157,10 +185,14 @@
+         "message": f"{saved_count} nouveaux tweets collectés",
+         "total_fetched": len(tweets_data),
+         "saved": saved_count,
+-        "duplicates": duplicates,
+-        "skipped": skipped,
+-        "duration_seconds": round(total_time, 2)
+-    }
++        "duplicates": duplicates,
++        "skipped": skipped,
++        "period_days": days,
++        "max_tweets": effective_max_tweets,
++        "api_requests": result.get("api_requests", 0),
++        "truncated": bool(result.get("truncated")),
++        "duration_seconds": round(total_time, 2)
++    }
+ 
+ 
+ @router.get("/verify/{target_id}")
+diff -ruN a/backend/app/services/llm_agent.py b/backend/app/services/llm_agent.py
+--- a/backend/app/services/llm_agent.py	2026-06-15 20:19:11.000000000 +0100
++++ b/backend/app/services/llm_agent.py	2026-06-15 20:28:22.308650528 +0100
+@@ -26,7 +26,7 @@
+ from backend.app.models.tweet import Tweet, VALID_SENTIMENTS
+ from backend.app.services.llm_from_scratch import get_planner
+ from backend.app.services.local_llm import ask_local_llm
+-from backend.app.services.twitter import twitter_service
++from backend.app.services.twitter import parse_tweet_datetime, twitter_service
+ 
+ # Modèle de sentiment existant du projet.
+ from services.sentiment.model import get_analyzer
+@@ -264,17 +264,28 @@
+ 
+ 
+ def _tweet_created_at(tweet_data: dict[str, Any]) -> datetime:
+-    # L'API utilisée renvoie parfois des formats différents. Pour rester robuste,
+-    # on stocke au minimum la date de collecte.
+-    return datetime.utcnow()
++    return parse_tweet_datetime(tweet_data) or datetime.utcnow()
+ 
+ 
+-async def collect_for_target(db: Session, target: Target) -> dict[str, Any]:
++async def collect_for_target(
++    db: Session,
++    target: Target,
++    days: int = 0,
++    max_tweets: int = 20,
++) -> dict[str, Any]:
+     start = time.time()
+     if target.target_type.value == "hashtag":
+-        api_result = await twitter_service.search_tweets(target.query)
++        api_result = await twitter_service.search_tweets(
++            target.query,
++            days=days,
++            max_tweets=max_tweets,
++        )
+     else:
+-        api_result = await twitter_service.get_user_tweets(target.name)
++        api_result = await twitter_service.get_user_tweets(
++            target.name,
++            days=days,
++            max_tweets=max_tweets,
++        )
+ 
+     if "error" in api_result:
+         raise AgentError(f"Erreur Twitter pour {target.name}: {api_result['error']}")
+@@ -334,10 +345,42 @@
+         "saved": saved,
+         "duplicates": duplicates,
+         "skipped": skipped,
++        "period_days": days,
++        "max_tweets": max_tweets if days > 0 else 20,
++        "api_requests": api_result.get("api_requests", 0),
++        "truncated": bool(api_result.get("truncated")),
+         "duration_seconds": round(time.time() - start, 2),
+     }
+ 
+ 
++def _question_requests_historical_collection(question: str) -> bool:
++    normalized = (question or "").lower()
++    return bool(
++        re.search(r"\b\d+\s*(j|jour|jours|semaine|semaines|mois)\b", normalized)
++        or any(
++            marker in normalized
++            for marker in (
++                "derniers jours",
++                "dernieres jours",
++                "dernières jours",
++                "sur plusieurs jours",
++                "sur la semaine",
++                "cette semaine",
++                "depuis",
++            )
++        )
++    )
++
++
++def _collection_options(question: str, plan: dict[str, Any], explicit_days: int | None) -> tuple[int, int]:
++    if explicit_days is None and not _question_requests_historical_collection(question):
++        return 0, 20
++
++    collection_days = max(1, min(30, int(plan.get("days", explicit_days or 7))))
++    max_tweets = min(1000, max(100, collection_days * 100))
++    return collection_days, max_tweets
++
++
+ def _clean_text_for_analysis(text: str) -> str:
+     clean = re.sub(r"http\S+|www\S+|https\S+", "", text or "")
+     clean = re.sub(r"@\w+", "", clean)
+@@ -497,6 +540,7 @@
+     if force_refresh is not None:
+         plan["force_refresh"] = bool(force_refresh)
+ 
++    collection_days, collection_max_tweets = _collection_options(question, plan, days)
+     requested_targets = plan.get("targets", []) or []
+     execution_log: list[dict[str, Any]] = []
+     selected_targets: list[Target] = []
+@@ -562,7 +606,12 @@
+         )
+ 
+         if should_collect:
+-            collect_result = await collect_for_target(db, target)
++            collect_result = await collect_for_target(
++                db,
++                target,
++                days=collection_days,
++                max_tweets=collection_max_tweets,
++            )
+             collect_result["action"] = "collect_tweets"
+             collect_result["target"] = target.name
+             execution_log.append(collect_result)
+diff -ruN a/backend/app/services/twitter.py b/backend/app/services/twitter.py
+--- a/backend/app/services/twitter.py	2026-06-15 20:19:11.000000000 +0100
++++ b/backend/app/services/twitter.py	2026-06-15 20:27:46.752196727 +0100
+@@ -1,9 +1,68 @@
++import math
++from datetime import datetime, timedelta, timezone
++from typing import Any
++
+ import httpx
++
+ from backend.app.config import get_settings
+ 
+ settings = get_settings()
+ 
+ 
++def extract_tweets(data: dict[str, Any]) -> list[dict[str, Any]]:
++    """Extrait les tweets des différents formats renvoyés par TwitterAPI.io."""
++    tweets: Any = data.get("tweets", data.get("data", []))
++    if isinstance(tweets, dict):
++        tweets = tweets.get("tweets", tweets.get("results", []))
++    if not isinstance(tweets, list):
++        return []
++    return [tweet for tweet in tweets if isinstance(tweet, dict)]
++
++
++def parse_tweet_datetime(tweet_data: dict[str, Any]) -> datetime | None:
++    """Retourne une date UTC naive, compatible avec la colonne SQLAlchemy existante."""
++    raw_value = (
++        tweet_data.get("createdAt")
++        or tweet_data.get("created_at")
++        or tweet_data.get("tweet_created_at")
++        or tweet_data.get("date")
++        or tweet_data.get("timestamp")
++    )
++    if raw_value is None:
++        return None
++
++    parsed: datetime | None = None
++    if isinstance(raw_value, datetime):
++        parsed = raw_value
++    elif isinstance(raw_value, (int, float)):
++        timestamp = float(raw_value)
++        if timestamp > 10_000_000_000:
++            timestamp /= 1000
++        parsed = datetime.fromtimestamp(timestamp, tz=timezone.utc)
++    elif isinstance(raw_value, str):
++        value = raw_value.strip()
++        if not value:
++            return None
++        try:
++            parsed = datetime.strptime(value, "%a %b %d %H:%M:%S %z %Y")
++        except ValueError:
++            try:
++                parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
++            except ValueError:
++                return None
++
++    if parsed is None:
++        return None
++    if parsed.tzinfo is None:
++        parsed = parsed.replace(tzinfo=timezone.utc)
++    return parsed.astimezone(timezone.utc).replace(tzinfo=None)
++
++
++def _tweet_id(tweet_data: dict[str, Any]) -> str | None:
++    value = tweet_data.get("id") or tweet_data.get("id_str") or tweet_data.get("tweetId")
++    return str(value) if value is not None else None
++
++
+ class TwitterService:
+     def __init__(self):
+         self.api_key = settings.twitter_api_key
+@@ -15,73 +74,232 @@
+             "Content-Type": "application/json",
+         }
+ 
+-    async def search_tweets(self, query: str):
+-        """Recherche des tweets pour un hashtag ou une requête."""
+-        if not self.api_key:
+-            return {"error": "TWITTER_API_KEY manquante"}
+-
+-        # Tracker l'usage
++    @staticmethod
++    def _track_usage():
+         try:
+             import redis
+-            from backend.app.config import get_settings
++
+             r = redis.from_url(get_settings().redis_url)
+             r.incr("sentiflow:usage:twitter_calls")
+         except Exception:
+             pass
+ 
+-        url = f"{self.base_url}/twitter/tweet/advanced_search"
+-        params = {"query": query, "queryType": "Latest"}
+-
++    async def _get(self, path: str, params: dict[str, Any]) -> dict[str, Any]:
++        self._track_usage()
++        url = f"{self.base_url}{path}"
+         async with httpx.AsyncClient(timeout=30.0) as client:
+             response = await client.get(url, headers=self._headers(), params=params)
+ 
+         if response.status_code >= 400:
+             return {"error": response.text, "status": response.status_code}
++        return response.json()
+ 
+-        data = response.json()
+-        return {"tweets": data.get("tweets", data.get("data", [])), "raw": data}
++    @staticmethod
++    def _deduplicate(tweets: list[dict[str, Any]]) -> list[dict[str, Any]]:
++        unique: list[dict[str, Any]] = []
++        seen_ids: set[str] = set()
++        for tweet in tweets:
++            twitter_id = _tweet_id(tweet)
++            if not twitter_id or twitter_id in seen_ids:
++                continue
++            seen_ids.add(twitter_id)
++            unique.append(tweet)
++        return unique
++
++    async def search_tweets(
++        self,
++        query: str,
++        days: int = 0,
++        max_tweets: int = 20,
++    ) -> dict[str, Any]:
++        """Recherche récente ou historique pour un hashtag/une requête."""
++        if not self.api_key:
++            return {"error": "TWITTER_API_KEY manquante"}
++
++        max_tweets = max(1, min(int(max_tweets), 1000))
++        if days <= 0:
++            data = await self._get(
++                "/twitter/tweet/advanced_search",
++                {"query": query, "queryType": "Latest"},
++            )
++            if "error" in data:
++                return data
++            tweets = extract_tweets(data)[:20]
++            return {
++                "tweets": tweets,
++                "raw": data,
++                "api_requests": 1,
++                "period_days": 0,
++                "truncated": False,
++            }
++
++        days = max(1, min(int(days), 30))
++        end = datetime.now(timezone.utc)
++        start = end - timedelta(days=days)
++        min_window = timedelta(minutes=1)
++        max_requests = min(120, max(20, math.ceil(max_tweets / 20) * 6))
++
++        # L'advanced search ne doit pas être paginée. Si une fenêtre remplit
++        # la page de 20 tweets, on la coupe en deux jusqu'à obtenir des
++        # intervalles assez précis.
++        windows = [(start, end)]
++        collected: list[dict[str, Any]] = []
++        seen_ids: set[str] = set()
++        request_count = 0
++        truncated = False
++
++        while windows and len(collected) < max_tweets:
++            if request_count >= max_requests:
++                truncated = True
++                break
++
++            window_start, window_end = windows.pop()
++            dated_query = (
++                f"{query} since_time:{int(window_start.timestamp())} "
++                f"until_time:{int(window_end.timestamp())}"
++            )
++            data = await self._get(
++                "/twitter/tweet/advanced_search",
++                {"query": dated_query, "queryType": "Latest"},
++            )
++            request_count += 1
++            if "error" in data:
++                return {
++                    **data,
++                    "api_requests": request_count,
++                    "partial_tweets": collected,
++                }
++
++            page_tweets = extract_tweets(data)
++            if len(page_tweets) >= 20 and window_end - window_start > min_window:
++                midpoint = window_start + (window_end - window_start) / 2
++                windows.append((window_start, midpoint))
++                windows.append((midpoint, window_end))
++                continue
++
++            for tweet in page_tweets:
++                twitter_id = _tweet_id(tweet)
++                if not twitter_id or twitter_id in seen_ids:
++                    continue
++                seen_ids.add(twitter_id)
++                collected.append(tweet)
++                if len(collected) >= max_tweets:
++                    truncated = bool(windows) or len(page_tweets) >= 20
++                    break
++
++        collected.sort(
++            key=lambda tweet: parse_tweet_datetime(tweet) or datetime.min,
++            reverse=True,
++        )
++        return {
++            "tweets": collected[:max_tweets],
++            "raw": {
++                "strategy": "adaptive_time_windows",
++                "api_requests": request_count,
++            },
++            "api_requests": request_count,
++            "period_days": days,
++            "truncated": truncated or bool(windows),
++        }
+ 
+     async def get_user_info(self, username: str):
+         """Récupère les infos d'un compte."""
+         if not self.api_key:
+             return None
+ 
+-        username = username.lstrip("@")
+-        url = f"{self.base_url}/twitter/user/info"
+-        params = {"userName": username}
+-
+-        async with httpx.AsyncClient(timeout=30.0) as client:
+-            response = await client.get(url, headers=self._headers(), params=params)
+-
+-        if response.status_code >= 400:
+-            return None
+-        return response.json()
+-
+-    async def get_user_tweets(self, username: str):
+-        """Récupère les tweets d'un compte."""
++        data = await self._get(
++            "/twitter/user/info",
++            {"userName": username.lstrip("@")},
++        )
++        return None if "error" in data else data
++
++    async def get_user_tweets(
++        self,
++        username: str,
++        days: int = 0,
++        max_tweets: int = 20,
++    ) -> dict[str, Any]:
++        """Récupère les tweets d'un compte avec pagination par curseur."""
+         if not self.api_key:
+             return {"error": "TWITTER_API_KEY manquante"}
+ 
+         username = username.lstrip("@")
+-        url = f"{self.base_url}/twitter/user/last_tweets"
+-        params = {"userName": username}
+-
+-        async with httpx.AsyncClient(timeout=30.0) as client:
+-            response = await client.get(url, headers=self._headers(), params=params)
+-
+-        if response.status_code >= 400:
+-            return {"error": response.text, "status": response.status_code}
+-
+-        data = response.json()
+-        return {"tweets": data.get("tweets", data.get("data", [])), "raw": data}
++        days = max(0, min(int(days), 30))
++        max_tweets = max(1, min(int(max_tweets), 1000))
++        if days <= 0:
++            max_tweets = min(max_tweets, 20)
++
++        cutoff = (
++            datetime.utcnow() - timedelta(days=days)
++            if days > 0
++            else None
++        )
++        max_pages = min(100, max(1, math.ceil(max_tweets / 20) + 5))
++        cursor = ""
++        request_count = 0
++        collected: list[dict[str, Any]] = []
++        seen_ids: set[str] = set()
++        has_next_page = True
++
++        while has_next_page and request_count < max_pages and len(collected) < max_tweets:
++            params: dict[str, Any] = {
++                "userName": username,
++                "includeReplies": False,
++            }
++            if cursor:
++                params["cursor"] = cursor
++
++            data = await self._get("/twitter/user/last_tweets", params)
++            request_count += 1
++            if "error" in data:
++                return {
++                    **data,
++                    "api_requests": request_count,
++                    "partial_tweets": collected,
++                }
++
++            page_tweets = extract_tweets(data)
++            reached_cutoff = False
++            for tweet in page_tweets:
++                created_at = parse_tweet_datetime(tweet)
++                if cutoff and created_at and created_at < cutoff:
++                    reached_cutoff = True
++                    continue
++
++                twitter_id = _tweet_id(tweet)
++                if not twitter_id or twitter_id in seen_ids:
++                    continue
++                seen_ids.add(twitter_id)
++                collected.append(tweet)
++                if len(collected) >= max_tweets:
++                    break
++
++            has_next_page = bool(data.get("has_next_page"))
++            cursor = str(data.get("next_cursor") or "")
++            if reached_cutoff or not cursor or days <= 0:
++                has_next_page = False
++
++        collected.sort(
++            key=lambda tweet: parse_tweet_datetime(tweet) or datetime.min,
++            reverse=True,
++        )
++        return {
++            "tweets": collected[:max_tweets],
++            "raw": {
++                "strategy": "cursor_pagination",
++                "api_requests": request_count,
++            },
++            "api_requests": request_count,
++            "period_days": days,
++            "truncated": has_next_page or len(collected) >= max_tweets,
++        }
+ 
+     async def verify_hashtag(self, hashtag: str):
+         """Vérifie si un hashtag retourne des tweets."""
+         result = await self.search_tweets(hashtag)
+         if "error" in result:
+             return False
+-        tweets = result.get("tweets", [])
+-        return isinstance(tweets, list) and len(tweets) > 0
++        return len(result.get("tweets", [])) > 0
+ 
+ 
+ twitter_service = TwitterService()
+diff -ruN a/frontend/src/pages/Cibles.js b/frontend/src/pages/Cibles.js
+--- a/frontend/src/pages/Cibles.js	2026-06-15 20:19:11.000000000 +0100
++++ b/frontend/src/pages/Cibles.js	2026-06-15 20:28:52.997044721 +0100
+@@ -42,13 +42,15 @@
+   );
+ }
+ 
+-export default function Cibles() {
+-  const [targets, setTargets] = useState([]);
+-  const [name, setName] = useState('');
+-  const [type, setType] = useState('hashtag');
+-  const [loading, setLoading] = useState(false);
+-  const [actionLoading, setActionLoading] = useState({});
+-  const [message, setMessage] = useState('');
++export default function Cibles() {
++  const [targets, setTargets] = useState([]);
++  const [name, setName] = useState('');
++  const [type, setType] = useState('hashtag');
++  const [collectionDays, setCollectionDays] = useState(0);
++  const [maxTweets, setMaxTweets] = useState(20);
++  const [loading, setLoading] = useState(false);
++  const [actionLoading, setActionLoading] = useState({});
++  const [message, setMessage] = useState('');
+ 
+   const loadTargets = () => {
+     getTargets().then((res) => setTargets(res.data)).catch(() => {});
+@@ -83,14 +85,35 @@
+     }
+   };
+ 
+-  const handleCollect = async (id) => {
+-    setActionLoading((prev) => ({ ...prev, [`collect_${id}`]: true }));
+-    try {
+-      const res = await collectTweets(id);
+-      setMessage(`${res.data.saved || res.data.tweets_saved || 0} tweets collectes`);
+-      loadTargets();
+-    } catch (err) {
+-      setMessage(err?.response?.data?.detail || 'Erreur collecte');
++  const handleCollectionDaysChange = (value) => {
++    const nextDays = Number(value);
++    setCollectionDays(nextDays);
++    if (nextDays === 0) {
++      setMaxTweets(20);
++    } else if (maxTweets === 20) {
++      setMaxTweets(250);
++    }
++  };
++
++  const handleCollect = async (id) => {
++    setActionLoading((prev) => ({ ...prev, [`collect_${id}`]: true }));
++    try {
++      const res = await collectTweets(id, {
++        days: collectionDays,
++        maxTweets,
++      });
++      const saved = res.data.saved || res.data.tweets_saved || 0;
++      const fetched = res.data.total_fetched || 0;
++      const duplicates = res.data.duplicates || 0;
++      const requests = res.data.api_requests || 0;
++      const periodLabel = collectionDays > 0 ? ` sur ${collectionDays} jour(s)` : '';
++      const limitLabel = collectionDays > 0 ? `, max ${maxTweets}` : '';
++      setMessage(
++        `${saved} nouveaux tweets collectes${periodLabel} (${fetched} recus, ${duplicates} doublons${limitLabel}, ${requests} appel(s) API)`
++      );
++      loadTargets();
++    } catch (err) {
++      setMessage(err?.response?.data?.detail || 'Erreur collecte');
+     } finally {
+       setActionLoading((prev) => ({ ...prev, [`collect_${id}`]: false }));
+       setTimeout(() => setMessage(''), 4000);
+@@ -129,8 +152,8 @@
+         Hashtags et comptes a surveiller
+       </p>
+ 
+-      {/* Timer */}
+-      <CountdownTimer />
++      {/* Timer */}
++      <CountdownTimer />
+ 
+       {/* Form */}
+       <form onSubmit={handleCreate} style={{ display: 'flex', gap: 10, marginBottom: 24, marginTop: 16 }}>
+@@ -182,9 +205,73 @@
+         >
+           <Plus size={16} /> Ajouter
+         </button>
+-      </form>
+-
+-      {message && (
++      </form>
++
++      <div style={{
++        display: 'flex',
++        flexWrap: 'wrap',
++        gap: 10,
++        alignItems: 'center',
++        padding: '12px 14px',
++        background: '#0f0f12',
++        border: '1px solid #1c1c22',
++        borderRadius: 8,
++        marginBottom: 16,
++      }}>
++        <span style={{ color: '#a1a1aa', fontSize: '0.8rem', fontWeight: 600 }}>
++          Collecte manuelle
++        </span>
++        <label style={{ display: 'flex', alignItems: 'center', gap: 6, color: '#71717a', fontSize: '0.78rem' }}>
++          Periode
++          <select
++            value={collectionDays}
++            onChange={(e) => handleCollectionDaysChange(e.target.value)}
++            style={{
++              padding: '7px 10px',
++              background: '#09090b',
++              border: '1px solid #27272a',
++              borderRadius: 6,
++              color: '#e4e4e7',
++              fontSize: '0.78rem',
++            }}
++          >
++            <option value={0}>20 derniers tweets</option>
++            <option value={1}>Dernier jour</option>
++            <option value={2}>2 jours</option>
++            <option value={3}>3 jours</option>
++            <option value={7}>7 jours</option>
++            <option value={14}>14 jours</option>
++            <option value={30}>30 jours</option>
++          </select>
++        </label>
++        <label style={{ display: 'flex', alignItems: 'center', gap: 6, color: '#71717a', fontSize: '0.78rem' }}>
++          Maximum
++          <select
++            value={maxTweets}
++            onChange={(e) => setMaxTweets(Number(e.target.value))}
++            disabled={collectionDays === 0}
++            style={{
++              padding: '7px 10px',
++              background: '#09090b',
++              border: '1px solid #27272a',
++              borderRadius: 6,
++              color: collectionDays === 0 ? '#52525b' : '#e4e4e7',
++              fontSize: '0.78rem',
++            }}
++          >
++            <option value={20}>20 tweets</option>
++            <option value={100}>100 tweets</option>
++            <option value={250}>250 tweets</option>
++            <option value={500}>500 tweets</option>
++            <option value={1000}>1000 tweets</option>
++          </select>
++        </label>
++        <span style={{ color: '#52525b', fontSize: '0.74rem' }}>
++          Pour les hashtags, la periode est decoupee automatiquement pour depasser la limite des 20 tweets.
++        </span>
++      </div>
++
++      {message && (
+         <div style={{
+           padding: '10px 14px',
+           background: '#0f0f12',
+diff -ruN a/frontend/src/services/api.js b/frontend/src/services/api.js
+--- a/frontend/src/services/api.js	2026-06-15 20:19:11.000000000 +0100
++++ b/frontend/src/services/api.js	2026-06-15 20:28:52.993044670 +0100
+@@ -54,8 +54,14 @@
+ 
+ // Twitter
+ export const verifyTarget = (id) => api.get(`/twitter/verify/${id}`);
+-export const collectTweets = (id) =>
+-  api.post(`/twitter/collect/${id}`, null, { timeout: 120000 });
++export const collectTweets = (id, options = {}) =>
++  api.post(`/twitter/collect/${id}`, null, {
++    params: {
++      days: options.days ?? 0,
++      max_tweets: options.maxTweets ?? 20,
++    },
++    timeout: 300000,
++  });
+ 
+ // Analysis
+ export const analyzeTweets = (id) =>
+diff -ruN a/tests/test_twitter_service.py b/tests/test_twitter_service.py
+--- a/tests/test_twitter_service.py	1970-01-01 01:00:00.000000000 +0100
++++ b/tests/test_twitter_service.py	2026-06-15 20:29:38.329611436 +0100
+@@ -0,0 +1,77 @@
++from datetime import datetime, timedelta
++
++import pytest
++
++from backend.app.services.twitter import TwitterService, parse_tweet_datetime
++
++
++def tweet(tweet_id: str, created_at: datetime | None = None) -> dict:
++    return {
++        "id": tweet_id,
++        "text": f"tweet {tweet_id}",
++        "createdAt": (created_at or datetime.utcnow()).isoformat() + "Z",
++        "author": {"id": "1", "userName": "tester"},
++    }
++
++
++def test_parse_tweet_datetime_supports_twitter_and_iso_formats():
++    twitter_date = parse_tweet_datetime(
++        {"createdAt": "Mon Jun 15 12:30:45 +0000 2026"}
++    )
++    iso_date = parse_tweet_datetime({"createdAt": "2026-06-15T12:30:45Z"})
++
++    assert twitter_date == datetime(2026, 6, 15, 12, 30, 45)
++    assert iso_date == datetime(2026, 6, 15, 12, 30, 45)
++
++
++@pytest.mark.asyncio
++async def test_search_tweets_splits_full_time_windows(monkeypatch):
++    service = TwitterService()
++    service.api_key = "test-key"
++    calls = []
++
++    async def fake_get(path, params):
++        calls.append((path, params))
++        if len(calls) == 1:
++            return {"tweets": [tweet(f"full-{i}") for i in range(20)]}
++        return {"tweets": [tweet(f"split-{len(calls)}-{i}") for i in range(3)]}
++
++    monkeypatch.setattr(service, "_get", fake_get)
++
++    result = await service.search_tweets("#france", days=3, max_tweets=100)
++
++    assert result["api_requests"] == 3
++    assert len(result["tweets"]) == 6
++    assert "since_time:" in calls[0][1]["query"]
++    assert "until_time:" in calls[0][1]["query"]
++
++
++@pytest.mark.asyncio
++async def test_get_user_tweets_paginates_until_cutoff(monkeypatch):
++    service = TwitterService()
++    service.api_key = "test-key"
++    now = datetime.utcnow()
++
++    async def fake_get(path, params):
++        if params.get("cursor") == "next":
++            return {
++                "tweets": [
++                    tweet("old", now - timedelta(days=5)),
++                    tweet("second-page", now - timedelta(hours=2)),
++                ],
++                "has_next_page": True,
++                "next_cursor": "older",
++            }
++        return {
++            "tweets": [tweet("first-page", now - timedelta(hours=1))],
++            "has_next_page": True,
++            "next_cursor": "next",
++        }
++
++    monkeypatch.setattr(service, "_get", fake_get)
++
++    result = await service.get_user_tweets("@openai", days=2, max_tweets=100)
++    ids = [item["id"] for item in result["tweets"]]
++
++    assert result["api_requests"] == 2
++    assert ids == ["first-page", "second-page"]

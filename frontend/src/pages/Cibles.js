@@ -46,6 +46,8 @@ export default function Cibles() {
   const [targets, setTargets] = useState([]);
   const [name, setName] = useState('');
   const [type, setType] = useState('hashtag');
+  const [collectionDays, setCollectionDays] = useState(0);
+  const [maxTweets, setMaxTweets] = useState(20);
   const [loading, setLoading] = useState(false);
   const [actionLoading, setActionLoading] = useState({});
   const [message, setMessage] = useState('');
@@ -83,11 +85,32 @@ export default function Cibles() {
     }
   };
 
+  const handleCollectionDaysChange = (value) => {
+    const nextDays = Number(value);
+    setCollectionDays(nextDays);
+    if (nextDays === 0) {
+      setMaxTweets(20);
+    } else if (maxTweets === 20) {
+      setMaxTweets(250);
+    }
+  };
+
   const handleCollect = async (id) => {
     setActionLoading((prev) => ({ ...prev, [`collect_${id}`]: true }));
     try {
-      const res = await collectTweets(id);
-      setMessage(`${res.data.saved || res.data.tweets_saved || 0} tweets collectes`);
+      const res = await collectTweets(id, {
+        days: collectionDays,
+        maxTweets,
+      });
+      const saved = res.data.saved || res.data.tweets_saved || 0;
+      const fetched = res.data.total_fetched || 0;
+      const duplicates = res.data.duplicates || 0;
+      const requests = res.data.api_requests || 0;
+      const periodLabel = collectionDays > 0 ? ` sur ${collectionDays} jour(s)` : '';
+      const limitLabel = collectionDays > 0 ? `, max ${maxTweets}` : '';
+      setMessage(
+        `${saved} nouveaux tweets collectes${periodLabel} (${fetched} recus, ${duplicates} doublons${limitLabel}, ${requests} appel(s) API)`
+      );
       loadTargets();
     } catch (err) {
       setMessage(err?.response?.data?.detail || 'Erreur collecte');
@@ -183,6 +206,70 @@ export default function Cibles() {
           <Plus size={16} /> Ajouter
         </button>
       </form>
+
+      <div style={{
+        display: 'flex',
+        flexWrap: 'wrap',
+        gap: 10,
+        alignItems: 'center',
+        padding: '12px 14px',
+        background: '#0f0f12',
+        border: '1px solid #1c1c22',
+        borderRadius: 8,
+        marginBottom: 16,
+      }}>
+        <span style={{ color: '#a1a1aa', fontSize: '0.8rem', fontWeight: 600 }}>
+          Collecte manuelle
+        </span>
+        <label style={{ display: 'flex', alignItems: 'center', gap: 6, color: '#71717a', fontSize: '0.78rem' }}>
+          Periode
+          <select
+            value={collectionDays}
+            onChange={(e) => handleCollectionDaysChange(e.target.value)}
+            style={{
+              padding: '7px 10px',
+              background: '#09090b',
+              border: '1px solid #27272a',
+              borderRadius: 6,
+              color: '#e4e4e7',
+              fontSize: '0.78rem',
+            }}
+          >
+            <option value={0}>20 derniers tweets</option>
+            <option value={1}>Dernier jour</option>
+            <option value={2}>2 jours</option>
+            <option value={3}>3 jours</option>
+            <option value={7}>7 jours</option>
+            <option value={14}>14 jours</option>
+            <option value={30}>30 jours</option>
+          </select>
+        </label>
+        <label style={{ display: 'flex', alignItems: 'center', gap: 6, color: '#71717a', fontSize: '0.78rem' }}>
+          Maximum
+          <select
+            value={maxTweets}
+            onChange={(e) => setMaxTweets(Number(e.target.value))}
+            disabled={collectionDays === 0}
+            style={{
+              padding: '7px 10px',
+              background: '#09090b',
+              border: '1px solid #27272a',
+              borderRadius: 6,
+              color: collectionDays === 0 ? '#52525b' : '#e4e4e7',
+              fontSize: '0.78rem',
+            }}
+          >
+            <option value={20}>20 tweets</option>
+            <option value={100}>100 tweets</option>
+            <option value={250}>250 tweets</option>
+            <option value={500}>500 tweets</option>
+            <option value={1000}>1000 tweets</option>
+          </select>
+        </label>
+        <span style={{ color: '#52525b', fontSize: '0.74rem' }}>
+          Pour les hashtags, la periode est decoupee automatiquement pour depasser la limite des 20 tweets.
+        </span>
+      </div>
 
       {message && (
         <div style={{
