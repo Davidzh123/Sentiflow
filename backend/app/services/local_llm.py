@@ -8,7 +8,7 @@ from collections import Counter, defaultdict
 from datetime import datetime, timedelta
 from typing import Any
 
-from sqlalchemy import func
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from backend.app.models.target import Target
@@ -315,12 +315,32 @@ def extract_keywords(tweets: list[Tweet], limit: int = 8) -> list[dict[str, Any]
 def build_period_counts(tweets: list[Tweet], start: datetime, end: datetime) -> dict[str, int]:
     counts = empty_sentiment_counts()
     for tweet in tweets:
-        analyzed_at = tweet.analyzed_at or tweet.tweet_created_at
-        if not analyzed_at or analyzed_at < start or analyzed_at >= end:
+        event_date = tweet_event_date(tweet)
+        if not event_date or event_date < start or event_date >= end:
             continue
         sentiment = tweet.sentiment or "neutre"
         counts[sentiment] = counts.get(sentiment, 0) + 1
     return counts
+
+
+def tweet_event_date(tweet: Tweet) -> datetime | None:
+    return tweet.tweet_created_at or getattr(tweet, "collected_at", None) or tweet.analyzed_at
+
+
+def tweet_collection_date(tweet: Tweet) -> datetime | None:
+    return getattr(tweet, "collected_at", None) or tweet.analyzed_at
+
+
+def iso_date(value: datetime | None) -> str | None:
+    return value.isoformat() if value else None
+
+
+def tweet_period_filter(since: datetime):
+    return or_(
+        Tweet.tweet_created_at >= since,
+        Tweet.collected_at >= since,
+        Tweet.analyzed_at >= since,
+    )
 
 
 def compute_target_stats(db: Session, target: Target, since: datetime, now: datetime | None = None) -> dict[str, Any]:
@@ -330,9 +350,9 @@ def compute_target_stats(db: Session, target: Target, since: datetime, now: date
         .filter(
             Tweet.target_id == target.id,
             Tweet.sentiment.isnot(None),
-            Tweet.analyzed_at >= since,
+            tweet_period_filter(since),
         )
-        .order_by(Tweet.analyzed_at.asc())
+        .order_by(Tweet.tweet_created_at.asc().nullslast(), Tweet.collected_at.asc().nullslast())
         .all()
     )
 
@@ -432,27 +452,21 @@ def compute_target_stats(db: Session, target: Target, since: datetime, now: date
 
 
 def compute_timeline(db: Session, target: Target, since: datetime) -> list[dict[str, Any]]:
-    day_expr = func.date(Tweet.analyzed_at)
-
-    rows = (
-        db.query(
-            day_expr.label("day"),
-            Tweet.sentiment,
-            func.count(Tweet.id).label("count"),
-        )
+    tweets = (
+        db.query(Tweet)
         .filter(
             Tweet.target_id == target.id,
             Tweet.sentiment.isnot(None),
-            Tweet.analyzed_at >= since,
+            tweet_period_filter(since),
         )
-        .group_by(day_expr, Tweet.sentiment)
-        .order_by(day_expr)
         .all()
     )
-
     timeline: dict[str, dict[str, Any]] = {}
-    for row in rows:
-        day = str(row.day)
+    for tweet in tweets:
+        event_date = tweet_event_date(tweet)
+        if not event_date:
+            continue
+        day = event_date.date().isoformat()
         if day not in timeline:
             timeline[day] = {
                 "date": day,
@@ -462,13 +476,12 @@ def compute_timeline(db: Session, target: Target, since: datetime) -> list[dict[
                 "sentiments": empty_sentiment_counts(),
             }
 
-        sentiment = row.sentiment or "neutre"
-        count = int(row.count)
-        timeline[day]["sentiments"][sentiment] = timeline[day]["sentiments"].get(sentiment, 0) + count
-        timeline[day]["total"] += count
+        sentiment = tweet.sentiment or "neutre"
+        timeline[day]["sentiments"][sentiment] = timeline[day]["sentiments"].get(sentiment, 0) + 1
+        timeline[day]["total"] += 1
 
     result = []
-    for item in timeline.values():
+    for item in sorted(timeline.values(), key=lambda row: row["date"]):
         item["net_sentiment_score"] = net_score_from_counts(item["sentiments"])
         item["dominant_sentiment"] = top_two_sentiments(item["sentiments"])[0][0]
         result.append(item)
@@ -487,7 +500,7 @@ def get_representative_tweets(
         .filter(
             Tweet.target_id.in_(target_ids),
             Tweet.sentiment.isnot(None),
-            Tweet.analyzed_at >= since,
+            tweet_period_filter(since),
         )
     )
 
@@ -507,7 +520,9 @@ def get_representative_tweets(
             "text": tweet.text,
             "sentiment": tweet.sentiment,
             "confidence": round(float(tweet.confidence or 0), 3),
-            "created_at": str(tweet.tweet_created_at) if tweet.tweet_created_at else None,
+            "created_at": iso_date(tweet.tweet_created_at),
+            "collected_at": iso_date(tweet_collection_date(tweet)),
+            "analyzed_at": iso_date(tweet.analyzed_at),
         }
         for tweet in tweets
     ]
@@ -520,6 +535,52 @@ def get_contrast_examples(db: Session, target_ids: list[int], since: datetime) -
         if rows:
             examples[sentiment] = rows
     return examples
+
+
+def get_dashboard_tweets(
+    db: Session,
+    targets: list[Target],
+    since: datetime,
+    limit: int = 1000,
+) -> list[dict[str, Any]]:
+    if not targets:
+        return []
+
+    target_by_id = {target.id: target for target in targets}
+    tweets = (
+        db.query(Tweet)
+        .filter(
+            Tweet.target_id.in_(list(target_by_id.keys())),
+            Tweet.sentiment.isnot(None),
+            tweet_period_filter(since),
+        )
+        .all()
+    )
+    tweets.sort(key=lambda tweet: tweet_event_date(tweet) or datetime.min, reverse=True)
+
+    rows: list[dict[str, Any]] = []
+    for tweet in tweets[:limit]:
+        target = target_by_id.get(tweet.target_id)
+        rows.append({
+            "tweet_id": tweet.id,
+            "twitter_id": tweet.twitter_id,
+            "target_id": tweet.target_id,
+            "target_name": target.name if target else None,
+            "target_type": (
+                str(target.target_type.value if hasattr(target.target_type, "value") else target.target_type)
+                if target
+                else None
+            ),
+            "author": tweet.author_username,
+            "text": tweet.text,
+            "sentiment": tweet.sentiment,
+            "confidence": round(float(tweet.confidence or 0), 3),
+            "tweet_created_at": iso_date(tweet.tweet_created_at),
+            "collected_at": iso_date(tweet_collection_date(tweet)),
+            "analyzed_at": iso_date(tweet.analyzed_at),
+            "display_date": iso_date(tweet_event_date(tweet)),
+        })
+    return rows
 
 
 def format_keywords(keywords: list[dict[str, Any]], max_items: int = 5) -> str:
@@ -769,8 +830,30 @@ def regenerate_answer_variant(
     lines.append(base_answer)
     return "\n".join(lines)
 
-def generate_dashboard_config(question: str, intent: str, stats: list[dict[str, Any]], timeline_by_target: dict[str, list[dict[str, Any]]]) -> dict[str, Any]:
+def generate_dashboard_config(
+    question: str,
+    intent: str,
+    stats: list[dict[str, Any]],
+    timeline_by_target: dict[str, list[dict[str, Any]]],
+    tweets: list[dict[str, Any]],
+    since: datetime,
+    now: datetime,
+    period_days: int,
+) -> dict[str, Any]:
     widgets: list[dict[str, Any]] = []
+
+    widgets.append({
+        "type": "collection_summary",
+        "title": "Période analysée",
+        "chart": "summary",
+        "data": {
+            "period_days": period_days,
+            "from": since.isoformat(),
+            "to": now.isoformat(),
+            "tweet_count": len(tweets),
+            "date_basis": "date du tweet, puis date de récupération si la date du tweet manque",
+        },
+    })
 
     widgets.append({
         "type": "sentiment_distribution",
@@ -848,11 +931,23 @@ def generate_dashboard_config(question: str, intent: str, stats: list[dict[str, 
         ],
     })
 
+    widgets.append({
+        "type": "tweet_table",
+        "title": "Tous les tweets analysés",
+        "chart": "table",
+        "data": tweets,
+    })
+
     return {
         "title": "Dashboard généré par le LLM SentiFlow",
         "source_question": question,
         "intent": canonical_intent(intent),
         "generated_at": datetime.utcnow().isoformat(),
+        "period": {
+            "days": period_days,
+            "from": since.isoformat(),
+            "to": now.isoformat(),
+        },
         "widgets": widgets,
     }
 
@@ -873,7 +968,8 @@ def ask_local_llm(
         raise ValueError("Il faut sélectionner au moins une cible.")
 
     detected_days = extract_days(question, default_days=days)
-    since = datetime.utcnow() - timedelta(days=detected_days)
+    now = datetime.utcnow()
+    since = now - timedelta(days=detected_days)
 
     predicted_intent, intent_confidence = INTENT_MODEL.predict(question)
     intent = canonical_intent(intent_override or predicted_intent, planner_actions)
@@ -883,6 +979,7 @@ def ask_local_llm(
     stats = [compute_target_stats(db, target, since) for target in targets]
 
     timeline_by_target = {target.name: compute_timeline(db, target, since) for target in targets}
+    dashboard_tweets = get_dashboard_tweets(db, targets, since)
     all_timeline_rows: list[dict[str, Any]] = []
     for rows in timeline_by_target.values():
         all_timeline_rows.extend(rows)
@@ -914,6 +1011,10 @@ def ask_local_llm(
             intent=intent,
             stats=stats,
             timeline_by_target=timeline_by_target,
+            tweets=dashboard_tweets,
+            since=since,
+            now=now,
+            period_days=detected_days,
         )
 
     return {

@@ -1,15 +1,17 @@
 from __future__ import annotations
 
 from collections import Counter
+from datetime import datetime
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import Response
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from backend.app.database import get_db
 from backend.app.models.generated_dashboard import GeneratedDashboard
+from backend.app.models.target import Target
 from backend.app.models.tweet import Tweet
 from backend.app.models.user import User
 from backend.app.services.auth import get_current_user
@@ -49,6 +51,32 @@ def serialize_dashboard(dashboard: GeneratedDashboard, include_config: bool = Tr
     return data
 
 
+def _serialize_tweet(tweet: Tweet, target_by_id: dict[int, Target]) -> dict[str, Any]:
+    target = target_by_id.get(tweet.target_id)
+    display_date = tweet.tweet_created_at or getattr(tweet, "collected_at", None) or tweet.analyzed_at
+    collected_at = getattr(tweet, "collected_at", None) or tweet.analyzed_at
+
+    return {
+        "tweet_id": tweet.id,
+        "twitter_id": tweet.twitter_id,
+        "target_id": tweet.target_id,
+        "target_name": target.name if target else None,
+        "target_type": (
+            str(target.target_type.value if hasattr(target.target_type, "value") else target.target_type)
+            if target
+            else None
+        ),
+        "author": tweet.author_username,
+        "text": tweet.text,
+        "sentiment": tweet.sentiment,
+        "confidence": round(float(tweet.confidence or 0), 3),
+        "tweet_created_at": tweet.tweet_created_at.isoformat() if tweet.tweet_created_at else None,
+        "collected_at": collected_at.isoformat() if collected_at else None,
+        "analyzed_at": tweet.analyzed_at.isoformat() if tweet.analyzed_at else None,
+        "display_date": display_date.isoformat() if display_date else None,
+    }
+
+
 @router.get("/")
 def list_generated_dashboards(
     db: Session = Depends(get_db),
@@ -85,6 +113,62 @@ def get_generated_dashboard(
         raise HTTPException(status_code=404, detail="Dashboard introuvable")
 
     return serialize_dashboard(dashboard, include_config=True)
+
+
+@router.get("/{dashboard_id}/tweets")
+def get_dashboard_tweets(
+    dashboard_id: int,
+    q: str | None = Query(default=None, max_length=200),
+    sentiment: str | None = Query(default=None, max_length=30),
+    target_id: int | None = Query(default=None),
+    limit: int = Query(default=1000, ge=1, le=3000),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    if current_user.is_admin:
+        dashboard = db.query(GeneratedDashboard).filter(
+            GeneratedDashboard.id == dashboard_id
+        ).first()
+    else:
+        dashboard = db.query(GeneratedDashboard).filter(
+            GeneratedDashboard.id == dashboard_id,
+            GeneratedDashboard.user_id == current_user.id,
+        ).first()
+
+    if not dashboard:
+        raise HTTPException(status_code=404, detail="Dashboard introuvable")
+
+    target_ids = [int(value) for value in (dashboard.target_ids or []) if value is not None]
+    if not target_ids:
+        return {"total": 0, "returned": 0, "tweets": []}
+
+    targets = db.query(Target).filter(Target.id.in_(target_ids)).all()
+    target_by_id = {target.id: target for target in targets}
+
+    query = db.query(Tweet).filter(
+        Tweet.target_id.in_(target_ids),
+        Tweet.sentiment.isnot(None),
+    )
+    if sentiment:
+        query = query.filter(Tweet.sentiment == sentiment)
+    if target_id:
+        query = query.filter(Tweet.target_id == target_id)
+    if q:
+        pattern = f"%{q.strip()}%"
+        query = query.filter(Tweet.text.ilike(pattern))
+
+    tweets = query.all()
+    tweets.sort(
+        key=lambda tweet: tweet.tweet_created_at or getattr(tweet, "collected_at", None) or tweet.analyzed_at or datetime.min,
+        reverse=True,
+    )
+    rows = [_serialize_tweet(tweet, target_by_id) for tweet in tweets[:limit]]
+
+    return {
+        "total": len(tweets),
+        "returned": len(rows),
+        "tweets": rows,
+    }
 
 
 @router.post("/")

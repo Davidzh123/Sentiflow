@@ -71,6 +71,11 @@ def generate_synthetic_examples(n: int = 8000, seed: int = 42) -> list[TrainingE
 
     collect_templates = [
         "récupère les tweets avec {a}",
+        "récupère les tweets de {a} sur {days} jours",
+        "collecte les tweets de {a} sur les {days} derniers jours",
+        "récupère les tweets de {a} sur deux jours",
+        "collecte {a} sur les deux derniers jours et résume",
+        "analyse {a} sur trois jours en récupérant les tweets",
         "collecte {a} puis analyse les sentiments",
         "analyse les nouveaux tweets de {a}",
         "crée la cible {a} et donne moi les résultats",

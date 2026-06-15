@@ -118,6 +118,27 @@ def extract_days(text: str, default: int = 7) -> int:
     match = re.search(r"(\d+)\s*(jour|jours|j|day|days)", q)
     if match:
         return max(1, min(90, int(match.group(1))))
+    word_numbers = {
+        "un": 1,
+        "une": 1,
+        "deux": 2,
+        "trois": 3,
+        "quatre": 4,
+        "cinq": 5,
+        "six": 6,
+        "sept": 7,
+        "huit": 8,
+        "neuf": 9,
+        "dix": 10,
+        "quatorze": 14,
+        "quinze": 15,
+        "trente": 30,
+    }
+    for word, value in word_numbers.items():
+        if re.search(rf"\b{word}\s+(jour|jours|j|day|days)\b", q):
+            return value
+        if re.search(rf"\b{word}\s+derniers?\s+jours?\b", q):
+            return value
     if "mois" in q:
         return 30
     if "semaine" in q:
@@ -250,6 +271,15 @@ def fallback_plan(question: str) -> dict[str, Any]:
             "twitter", "tweets avec", "ajoute", "cree", "cree",
         ]
     )
+    wants_recent_collection = (not collect_negated) and bool(
+        re.search(
+            r"\b(\d+|un|une|deux|trois|quatre|cinq|six|sept|huit|neuf|dix|quatorze|quinze|trente)\s+"
+            r"(jour|jours|derniers?\s+jours?)\b",
+            q,
+        )
+        or any(marker in q for marker in ["derniers jours", "dernieres jours", "dernières jours", "depuis"])
+    )
+    wants_collect = wants_collect or wants_recent_collection
     wants_compare = any(word in q for word in ["compare", "comparaison", "versus", "vs", "entre"])
     wants_timeline = any(word in q for word in ["evolution", "tendance", "temps", "temporel", "augmente", "baisse"])
     wants_examples = any(word in q for word in ["exemple", "tweets", "montre", "affiche"])
@@ -346,9 +376,8 @@ class SentiflowPlanner:
             for _ in range(self.max_new_tokens):
                 idx_cond = idx[:, -self.model.block_size:]
                 logits = self.model(idx_cond)
-                next_logits = logits[:, -1, :] / 0.8
-                probs = torch.softmax(next_logits, dim=-1)
-                next_id = torch.multinomial(probs, num_samples=1)
+                next_logits = logits[:, -1, :]
+                next_id = torch.argmax(next_logits, dim=-1, keepdim=True)
                 idx = torch.cat([idx, next_id], dim=1)
                 if int(next_id.item()) == self.tokenizer.eos_id:
                     break
@@ -361,9 +390,9 @@ class SentiflowPlanner:
         return parsed
 
     def plan(self, question: str) -> dict[str, Any]:
-        # Utiliser le fallback symbolique qui fonctionne correctement
-        # Le TinyGPT checkpoint hallucine sur les cibles non vues à l'entraînement
-        # On le réactivera après ré-entraînement avec les nouvelles données
+        raw_plan = self.generate_with_model(question)
+        if raw_plan is not None:
+            return validate_plan(raw_plan, question)
         fallback = fallback_plan(question)
         return validate_plan(fallback, question)
 

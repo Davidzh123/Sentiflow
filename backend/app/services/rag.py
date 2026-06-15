@@ -1274,6 +1274,29 @@ def build_rag_prompt(question: str, tweets: List[Dict[str, Any]], intent: str = 
 # GENERATEUR FROM SCRATCH (TinyGPT + fallback)
 # ============================================
 
+def _is_usable_tinygpt_answer(answer: str) -> bool:
+    """Évite d'afficher une sortie de planner JSON comme réponse RAG."""
+    cleaned = (answer or "").strip()
+    if len(cleaned) < 80:
+        return False
+
+    lowered = cleaned.lower()
+    planner_markers = [
+        "json:",
+        '"intent"',
+        '"targets"',
+        '"actions"',
+        "target_types",
+        "force_refresh",
+        "dashboard",
+    ]
+    if any(marker in lowered for marker in planner_markers):
+        return False
+
+    letters = sum(1 for char in cleaned if char.isalpha())
+    readable_ratio = letters / max(1, len(cleaned))
+    return readable_ratio >= 0.45
+
 def generate_answer_from_scratch(
     question: str,
     tweets: List[Dict[str, Any]],
@@ -1323,9 +1346,10 @@ def generate_answer_from_scratch(
             decoded = planner.tokenizer.decode(idx[0].tolist())
             generated = decoded[len(prompt[:400]):]
 
-            if len(generated.strip()) > 20:
+            if _is_usable_tinygpt_answer(generated):
                 logger.info(f"[RAG] Réponse générée par TinyGPT ({len(generated)} chars)")
                 return generated.strip()
+            logger.warning("[RAG] Sortie TinyGPT rejetée: réponse non lisible ou JSON de planner")
     except Exception as e:
         logger.warning(f"[RAG] TinyGPT indisponible: {e}")
 

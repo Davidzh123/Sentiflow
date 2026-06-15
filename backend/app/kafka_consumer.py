@@ -99,6 +99,7 @@ def process_tweet(db, analyzer, message):
                 sentiment_scores=None,
                 confidence=None,
                 tweet_created_at=tweet_date,
+                collected_at=datetime.utcnow(),
                 analyzed_at=None,
             )
             db.add(tweet)
@@ -134,6 +135,7 @@ def process_tweet(db, analyzer, message):
             sentiment_scores=scores,
             confidence=confidence,
             tweet_created_at=tweet_date,
+            collected_at=datetime.utcnow(),
             analyzed_at=datetime.utcnow(),
         )
         db.add(tweet)

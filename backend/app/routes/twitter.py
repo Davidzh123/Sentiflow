@@ -32,6 +32,7 @@ async def collect_tweets(
 ):
     """Collecte les tweets récents ou ceux d'une période donnée."""
     start_time = time.time()
+    collected_at = datetime.utcnow()
     effective_max_tweets = max_tweets if days > 0 else 20
 
     # Vérifier que la cible appartient à l'utilisateur
@@ -149,7 +150,8 @@ async def collect_tweets(
             text=text,
             author_id=str(author_id) if author_id else None,
             author_username=author_username,
-            tweet_created_at=parse_tweet_datetime(tweet_data) or datetime.utcnow()
+            tweet_created_at=parse_tweet_datetime(tweet_data) or collected_at,
+            collected_at=collected_at,
         )
         db.add(tweet)
         existing_ids.add(str(twitter_id))

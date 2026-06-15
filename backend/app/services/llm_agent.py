@@ -274,6 +274,7 @@ async def collect_for_target(
     max_tweets: int = 20,
 ) -> dict[str, Any]:
     start = time.time()
+    collected_at = datetime.utcnow()
     if target.target_type.value == "hashtag":
         api_result = await twitter_service.search_tweets(
             target.query,
@@ -327,6 +328,7 @@ async def collect_for_target(
             author_id=str(author_id) if author_id else None,
             author_username=author_username,
             tweet_created_at=_tweet_created_at(tweet_data),
+            collected_at=collected_at,
         )
         db.add(tweet)
         saved += 1

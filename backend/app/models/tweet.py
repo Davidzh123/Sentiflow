@@ -20,6 +20,7 @@ class Tweet(Base):
     sentiment_scores = Column(JSON, nullable=True)  # {"joie": 0.8, "colere": 0.1, ...}
     confidence = Column(Float, nullable=True)
     tweet_created_at = Column(DateTime, nullable=True)
+    collected_at = Column(DateTime, default=datetime.utcnow, nullable=True)
     analyzed_at = Column(DateTime, default=datetime.utcnow)
 
     # Relations

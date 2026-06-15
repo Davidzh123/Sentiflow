@@ -96,6 +96,14 @@ def run_demo_schema_migrations(engine: Engine) -> None:
             ]
         )
 
+    if _has_table(engine, "tweets"):
+        statements.extend(
+            [
+                "ALTER TABLE tweets ADD COLUMN IF NOT EXISTS collected_at TIMESTAMP",
+                "UPDATE tweets SET collected_at = COALESCE(analyzed_at, tweet_created_at, NOW()) WHERE collected_at IS NULL",
+            ]
+        )
+
     if not statements:
         return
 
