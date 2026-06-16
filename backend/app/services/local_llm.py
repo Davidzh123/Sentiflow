@@ -296,20 +296,49 @@ def top_two_sentiments(counts: dict[str, int]) -> tuple[tuple[str | None, int], 
 def clean_text_for_keywords(text: str) -> list[str]:
     text = normalize_text(text)
     text = re.sub(r"https?://\S+|www\.\S+", " ", text)
-    text = re.sub(r"[@#]", " ", text)
-    words = re.findall(r"[a-z0-9_]{3,}", text)
+    words = [word.lstrip("#@") for word in re.findall(r"[#@]?[a-z0-9_]{3,}", text)]
     return [word for word in words if word not in STOPWORDS and not word.isdigit()]
 
 
-def extract_keywords(tweets: list[Tweet], limit: int = 8) -> list[dict[str, Any]]:
+def keyword_score(count: int, doc_count: int, sentiment_counts: Counter[str]) -> float:
+    total = sum(sentiment_counts.values()) or 1
+    pos = sum(sentiment_counts.get(sentiment, 0) for sentiment in POSITIVE_SENTIMENTS)
+    neg = sum(sentiment_counts.get(sentiment, 0) for sentiment in NEGATIVE_SENTIMENTS)
+    emotional_weight = 1 + abs(pos - neg) / total
+    spread_weight = 1 + min(doc_count, 8) / 16
+    return round(count * emotional_weight * spread_weight, 3)
+
+
+def extract_keywords(tweets: list[Tweet], target_name: str | None = None, limit: int = 16) -> list[dict[str, Any]]:
+    excluded = {str(target_name or "").lower().lstrip("#@")}
     counter: Counter[str] = Counter()
+    doc_counter: Counter[str] = Counter()
+    sentiment_by_term: dict[str, Counter[str]] = defaultdict(Counter)
+
     for tweet in tweets:
-        counter.update(clean_text_for_keywords(tweet.text or ""))
-    return [
-        {"term": term, "count": count}
-        for term, count in counter.most_common(limit)
-        if count > 1 or len(counter) <= 5
-    ]
+        terms = [term for term in clean_text_for_keywords(tweet.text or "") if term not in excluded]
+        counter.update(terms)
+        doc_counter.update(set(terms))
+        sentiment = tweet.sentiment or "neutre"
+        for term in set(terms):
+            sentiment_by_term[term][sentiment] += 1
+
+    rows = []
+    for term, count in counter.items():
+        if count <= 1 and len(counter) > 5:
+            continue
+        sentiment_counts = sentiment_by_term[term]
+        rows.append({
+            "term": term,
+            "count": count,
+            "doc_count": doc_counter[term],
+            "score": keyword_score(count, doc_counter[term], sentiment_counts),
+            "dominant_sentiment": sentiment_counts.most_common(1)[0][0] if sentiment_counts else None,
+            "sentiment_counts": dict(sentiment_counts),
+        })
+
+    rows.sort(key=lambda item: (item["score"], item["doc_count"], item["count"]), reverse=True)
+    return rows[:limit]
 
 
 def build_period_counts(tweets: list[Tweet], start: datetime, end: datetime) -> dict[str, int]:
@@ -446,7 +475,7 @@ def compute_target_stats(db: Session, target: Target, since: datetime, now: date
         "net_sentiment_score": net_score,
         "net_sentiment_label": score_label(net_score),
         "trend": trend,
-        "keywords": extract_keywords(tweets, limit=8),
+        "keywords": extract_keywords(tweets, target_name=target.name, limit=16),
         "quality_notes": quality_notes,
     }
 

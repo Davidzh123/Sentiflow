@@ -28,13 +28,72 @@ le la les un une des de du au aux et ou mais donc car que qui quoi ce cette ces
 je tu il elle on nous vous ils elles ne pas plus pour par avec sans sur dans est
 sont the a an of to in on for and or but is are was be been has have this that it
 he she they we you my your not no yes so just like get rt http https com www amp co
+avec tout tous toutes avoir etre faire fait cette cet ces leur leurs notre votre
+tweet tweets twitter via peut peux tres trop quand comme nous vous dans pour plus
+moins apres avant encore ici bien rien tout monde aujourd hui demain hier depuis
 """.split())
 
 
-def _tokenize(text: str) -> list[str]:
+def _tokenize(text: str, excluded_terms: set[str] | None = None) -> list[str]:
+    excluded_terms = excluded_terms or set()
     text = (text or "").lower()
-    text = re.sub(r"http\S+|@\w+|#\w+|[^a-zàâçéèêëîïôûùüÿñæœ\s]", " ", text)
-    return [w for w in text.split() if len(w) > 2 and w not in _STOP]
+    text = re.sub(r"http\S+", " ", text)
+    raw_terms = re.findall(r"#?[a-z0-9_àâçéèêëîïôûùüÿñæœ]{3,}", text)
+    terms = []
+    for raw in raw_terms:
+        term = raw.strip("#")
+        if not term or term in _STOP or term in excluded_terms or term.isdigit():
+            continue
+        terms.append(term)
+    return terms
+
+
+def _keyword_score(count: int, doc_count: int, sentiment_counts: Counter) -> float:
+    # Favorise les mots fréquents, présents dans plusieurs tweets, et émotionnellement marqués.
+    total = sum(sentiment_counts.values()) or 1
+    pos = sum(sentiment_counts.get(s, 0) for s in POSITIVE)
+    neg = sum(sentiment_counts.get(s, 0) for s in NEGATIVE)
+    emotional_weight = 1 + abs(pos - neg) / total
+    spread_weight = 1 + min(doc_count, 8) / 16
+    return round(count * emotional_weight * spread_weight, 3)
+
+
+def extract_relevant_keywords(tweets: list[Tweet], target_name: str | None = None, limit: int = 16) -> list[dict[str, Any]]:
+    excluded = set()
+    if target_name:
+        excluded.add(str(target_name).lower().lstrip("#@"))
+
+    counts: Counter[str] = Counter()
+    docs: Counter[str] = Counter()
+    sentiment_by_term: dict[str, Counter] = defaultdict(Counter)
+
+    for tweet in tweets:
+        terms = _tokenize(tweet.text or "", excluded)
+        if not terms:
+            continue
+        counts.update(terms)
+        docs.update(set(terms))
+        sentiment = tweet.sentiment or "neutre"
+        for term in set(terms):
+            sentiment_by_term[term][sentiment] += 1
+
+    rows = []
+    for term, count in counts.items():
+        if count <= 1 and len(counts) > 5:
+            continue
+        sentiment_counts = sentiment_by_term[term]
+        dominant = sentiment_counts.most_common(1)[0][0] if sentiment_counts else None
+        rows.append({
+            "term": term,
+            "count": count,
+            "doc_count": docs[term],
+            "score": _keyword_score(count, docs[term], sentiment_counts),
+            "dominant_sentiment": dominant,
+            "sentiment_counts": dict(sentiment_counts),
+        })
+
+    rows.sort(key=lambda item: (item["score"], item["doc_count"], item["count"]), reverse=True)
+    return rows[:limit]
 
 
 def _net_label(net: float) -> str:
@@ -104,13 +163,10 @@ def build_dashboard_config(db: Session, target_ids: list[int], question: str | N
             "net_sentiment_score": net,
         })
 
-        # Mots-clés
-        tok_counter: Counter = Counter()
-        for t in tws:
-            tok_counter.update(set(_tokenize(t.text)))
         keyword_data.append({
+            "target_id": tgt.id,
             "target_name": tgt.name,
-            "keywords": [{"term": w, "count": c} for w, c in tok_counter.most_common(8)],
+            "keywords": extract_relevant_keywords(tws, target_name=tgt.name, limit=16),
         })
 
         # Timeline par jour

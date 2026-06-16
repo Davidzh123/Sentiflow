@@ -51,6 +51,15 @@ def _owned_tweet(db: Session, user_id: int, tweet_id: int) -> Tweet:
     return tweet
 
 
+def _feedback_tweet(db: Session, current_user: User, tweet_id: int) -> Tweet:
+    if current_user.is_admin:
+        tweet = db.query(Tweet).filter(Tweet.id == tweet_id).first()
+        if not tweet:
+            raise HTTPException(status_code=404, detail="Tweet introuvable")
+        return tweet
+    return _owned_tweet(db, current_user.id, tweet_id)
+
+
 def _safe_scores(scores: Any) -> dict[str, float]:
     if not isinstance(scores, dict):
         return {label: 0.0 for label in DISPLAY_SENTIMENTS}
@@ -98,7 +107,7 @@ def submit_sentiment_feedback(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    tweet = _owned_tweet(db, current_user.id, payload.tweet_id)
+    tweet = _feedback_tweet(db, current_user, payload.tweet_id)
     previous_label = tweet.sentiment or "neutre"
     previous_scores = _safe_scores(tweet.sentiment_scores)
 

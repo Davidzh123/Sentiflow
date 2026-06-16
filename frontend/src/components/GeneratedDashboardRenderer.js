@@ -12,9 +12,12 @@ import {
   PieChart,
   ReferenceLine,
   ResponsiveContainer,
+  Scatter,
+  ScatterChart,
   Tooltip,
   XAxis,
   YAxis,
+  ZAxis,
 } from 'recharts';
 import api from '../services/api';
 import './GeneratedDashboardRenderer.css';
@@ -39,6 +42,7 @@ const SENTIMENT_COLORS = {
   neutre: '#94a3b8',
 };
 const SERIES_COLORS = ['#5271ff', '#22c55e', '#f59e0b', '#ec4899', '#a855f7', '#14b8a6', '#ef4444'];
+const WORD_CLOUD_COLORS = ['#8ea2ff', '#22c55e', '#f59e0b', '#ec4899', '#38bdf8', '#a855f7', '#f87171'];
 
 function percent(value) {
   const numeric = Number(value || 0);
@@ -165,15 +169,62 @@ function buildKeywordRows(keywordWidget) {
   const rows = [];
   (keywordWidget?.data || []).forEach((target) => {
     (target.keywords || []).forEach((keyword) => {
+      const sentimentCounts = keyword.sentiment_counts || {};
+      const dominantSentiment = keyword.dominant_sentiment
+        || Object.entries(sentimentCounts).sort((a, b) => Number(b[1] || 0) - Number(a[1] || 0))[0]?.[0]
+        || null;
       rows.push({
+        targetId: target.target_id,
         targetName: target.target_name,
         term: keyword.term,
         count: Number(keyword.count || 0),
+        docCount: Number(keyword.doc_count || keyword.count || 0),
+        score: Number(keyword.score || keyword.count || 0),
+        sentimentCounts,
+        dominantSentiment,
         label: `${target.target_name} - ${keyword.term}`,
       });
     });
   });
-  return rows.sort((a, b) => b.count - a.count).slice(0, 18);
+  return rows.sort((a, b) => b.score - a.score || b.count - a.count).slice(0, 24);
+}
+
+function buildWordCloudRows(keywordWidget) {
+  const rows = buildKeywordRows(keywordWidget).slice(0, 36);
+  if (!rows.length) return [];
+
+  const maxScore = Math.max(...rows.map((row) => row.score || row.count || 1), 1);
+  const minScore = Math.min(...rows.map((row) => row.score || row.count || 1), maxScore);
+  const spread = Math.max(maxScore - minScore, 1);
+
+  return rows.map((row, index) => {
+    const normalized = ((row.score || row.count || 1) - minScore) / spread;
+    return {
+      ...row,
+      size: Math.round(14 + normalized * 24),
+      color: SENTIMENT_COLORS[row.dominantSentiment] || WORD_CLOUD_COLORS[index % WORD_CLOUD_COLORS.length],
+      weight: Math.round(500 + normalized * 350),
+    };
+  });
+}
+
+function buildKeywordSentimentRows(keywordWidget) {
+  return buildKeywordRows(keywordWidget)
+    .filter((row) => Object.values(row.sentimentCounts || {}).some((value) => Number(value || 0) > 0))
+    .slice(0, 12);
+}
+
+function buildQualityMapData(metrics) {
+  return metrics
+    .filter((item) => Number(item.total || 0) > 0)
+    .map((item) => ({
+      targetName: item.targetName,
+      volume: Number(item.total || 0),
+      netScore: Number(item.netScore || 0),
+      confidence: Math.round(Number(item.confidence || 0) * 100),
+      dominant: item.dominant,
+      dominantPercent: Number(item.dominantPercent || 0),
+    }));
 }
 
 function DashboardMetrics({ metrics, summary }) {
@@ -345,6 +396,62 @@ function TargetComparisonWidget({ comparisonWidget, distributionWidget }) {
   );
 }
 
+function TargetQualityMapWidget({ metrics }) {
+  const rows = buildQualityMapData(metrics);
+  if (!rows.length) return null;
+
+  return (
+    <section className="generated-widget-card">
+      <div className="generated-widget-header">
+        <h2>Carte volume / confiance</h2>
+        <p>Chaque point croise le volume de tweets, le score émotionnel et la confiance moyenne du modèle.</p>
+      </div>
+      <ResponsiveContainer width="100%" height={340}>
+        <ScatterChart margin={{ top: 12, right: 26, bottom: 22, left: 6 }}>
+          <CartesianGrid strokeDasharray="3 3" stroke="#1f2937" />
+          <XAxis
+            type="number"
+            dataKey="volume"
+            name="Volume"
+            stroke="#94a3b8"
+            allowDecimals={false}
+          />
+          <YAxis
+            type="number"
+            dataKey="netScore"
+            name="Score émotionnel"
+            stroke="#94a3b8"
+            domain={[-1, 1]}
+          />
+          <ZAxis type="number" dataKey="confidence" range={[90, 420]} name="Confiance" unit="%" />
+          <Tooltip
+            cursor={{ strokeDasharray: '3 3' }}
+            formatter={(value, name) => {
+              if (name === 'Score émotionnel') return [Number(value).toFixed(2), name];
+              return [value, name];
+            }}
+            labelFormatter={(_, payload) => payload?.[0]?.payload?.targetName || ''}
+          />
+          <ReferenceLine y={0} stroke="#64748b" strokeDasharray="4 4" />
+          <Scatter data={rows} name="Cibles">
+            {rows.map((entry) => (
+              <Cell key={entry.targetName} fill={SENTIMENT_COLORS[entry.dominant] || '#5271ff'} />
+            ))}
+          </Scatter>
+        </ScatterChart>
+      </ResponsiveContainer>
+      <div className="generated-quality-legend">
+        {rows.map((row) => (
+          <span key={row.targetName}>
+            <i style={{ background: SENTIMENT_COLORS[row.dominant] || '#5271ff' }} />
+            {row.targetName} · {SENTIMENT_LABELS[row.dominant] || row.dominant || 'inconnu'} ({percent(row.dominantPercent)})
+          </span>
+        ))}
+      </div>
+    </section>
+  );
+}
+
 function SentimentTimelineWidget({ widget }) {
   const timeline = buildTimelineData(widget);
   if (!timeline.rows.length) return null;
@@ -389,6 +496,35 @@ function SentimentTimelineWidget({ widget }) {
   );
 }
 
+function KeywordWordCloudWidget({ widget }) {
+  const words = buildWordCloudRows(widget);
+  if (!words.length) return null;
+
+  return (
+    <section className="generated-widget-card generated-word-cloud-card">
+      <div className="generated-widget-header">
+        <h2>Nuage de mots pertinents</h2>
+        <p>Termes pondérés par fréquence, nombre de tweets concernés et signal émotionnel. Le hashtag cible est exclu.</p>
+      </div>
+      <div className="generated-word-cloud" aria-label="Nuage de mots clés">
+        {words.map((word) => (
+          <span
+            key={`${word.targetName}-${word.term}`}
+            title={`${word.targetName} · ${word.count} occurrences · ${SENTIMENT_LABELS[word.dominantSentiment] || word.dominantSentiment || 'sentiment mixte'}`}
+            style={{
+              color: word.color,
+              fontSize: `${word.size}px`,
+              fontWeight: word.weight,
+            }}
+          >
+            {word.term}
+          </span>
+        ))}
+      </div>
+    </section>
+  );
+}
+
 function KeywordTopicsWidget({ widget }) {
   const rows = buildKeywordRows(widget);
   if (!rows.length) return null;
@@ -404,10 +540,60 @@ function KeywordTopicsWidget({ widget }) {
           <CartesianGrid strokeDasharray="3 3" stroke="#1f2937" />
           <XAxis type="number" stroke="#94a3b8" allowDecimals={false} />
           <YAxis type="category" dataKey="label" stroke="#94a3b8" width={130} />
-          <Tooltip formatter={(value) => [`${value} occurrences`, 'Fréquence']} />
-          <Bar dataKey="count" fill="#5271ff" radius={[0, 8, 8, 0]} />
+          <Tooltip formatter={(value, name) => [name === 'score' ? Number(value).toFixed(2) : value, name === 'score' ? 'Score de pertinence' : 'Fréquence']} />
+          <Bar dataKey="score" fill="#5271ff" radius={[0, 8, 8, 0]}>
+            {rows.map((row, index) => (
+              <Cell key={`${row.targetName}-${row.term}`} fill={SENTIMENT_COLORS[row.dominantSentiment] || WORD_CLOUD_COLORS[index % WORD_CLOUD_COLORS.length]} />
+            ))}
+          </Bar>
         </BarChart>
       </ResponsiveContainer>
+    </section>
+  );
+}
+
+function KeywordSentimentMatrixWidget({ widget }) {
+  const rows = buildKeywordSentimentRows(widget);
+  if (!rows.length) return null;
+
+  const maxValue = Math.max(
+    ...rows.flatMap((row) => SENTIMENTS.map((sentiment) => Number(row.sentimentCounts?.[sentiment] || 0))),
+    1
+  );
+
+  return (
+    <section className="generated-widget-card">
+      <div className="generated-widget-header">
+        <h2>Matrice mots / émotions</h2>
+        <p>Les mots importants sont croisés avec les émotions qu'ils portent le plus souvent.</p>
+      </div>
+      <div className="generated-keyword-matrix">
+        <div className="generated-keyword-matrix-head">
+          <span>Mot</span>
+          {SENTIMENTS.map((sentiment) => (
+            <span key={sentiment}>{SENTIMENT_LABELS[sentiment]}</span>
+          ))}
+        </div>
+        {rows.map((row) => (
+          <div className="generated-keyword-matrix-row" key={`${row.targetName}-${row.term}`}>
+            <strong>{row.term}<small>{row.targetName}</small></strong>
+            {SENTIMENTS.map((sentiment) => {
+              const value = Number(row.sentimentCounts?.[sentiment] || 0);
+              const opacity = value ? 0.18 + (value / maxValue) * 0.72 : 0.06;
+              return (
+                <span
+                  key={sentiment}
+                  className="generated-keyword-cell"
+                  style={{ background: SENTIMENT_COLORS[sentiment], opacity }}
+                  title={`${row.term} · ${SENTIMENT_LABELS[sentiment]} : ${value}`}
+                >
+                  {value || ''}
+                </span>
+              );
+            })}
+          </div>
+        ))}
+      </div>
     </section>
   );
 }
@@ -695,7 +881,13 @@ export default function GeneratedDashboardRenderer({ dashboard, config }) {
       </div>
 
       <TargetComparisonWidget comparisonWidget={comparisonWidget} distributionWidget={distributionWidget} />
+      <TargetQualityMapWidget metrics={metrics} />
       <SentimentTimelineWidget widget={timelineWidget} />
+
+      <div className="generated-dashboard-two-col">
+        <KeywordWordCloudWidget widget={keywordWidget} />
+        <KeywordSentimentMatrixWidget widget={keywordWidget} />
+      </div>
       <KeywordTopicsWidget widget={keywordWidget} />
       <TweetExplorer dashboard={dashboard} dashboardConfig={dashboardConfig} />
 
