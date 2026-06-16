@@ -2,42 +2,53 @@ import React, { useEffect, useState } from 'react';
 import { getTargets, createTarget, deleteTarget, collectTweets, analyzeTweets } from '../services/api';
 import { Plus, Trash2, Download, Cpu, Loader2, Clock } from 'lucide-react';
 
-function getNextCollectTime() {
-  // Collecte toutes les 15 min, calculer le prochain cycle
-  const now = new Date();
-  const minutes = now.getMinutes();
-  const nextSlot = Math.ceil((minutes + 1) / 15) * 15;
-  const next = new Date(now);
-  next.setMinutes(nextSlot % 60);
-  next.setSeconds(0);
-  if (nextSlot >= 60) next.setHours(next.getHours() + 1);
-  return next;
-}
-
 function CountdownTimer() {
   const [timeLeft, setTimeLeft] = useState('');
+  const [active, setActive] = useState(true);
+  const [interval, setIntervalMin] = useState(15);
 
   useEffect(() => {
+    const checkStatus = () => {
+      fetch('/admin/collect-timer')
+        .then((r) => r.json())
+        .then((d) => { setActive(d.active !== false); setIntervalMin(d.interval_minutes || 15); })
+        .catch(() => {});
+    };
+    checkStatus();
+    const statusId = setInterval(checkStatus, 10000);
+    const onRefresh = () => checkStatus();
+    window.addEventListener('sentiflow:refresh-timer', onRefresh);
+    return () => { clearInterval(statusId); window.removeEventListener('sentiflow:refresh-timer', onRefresh); };
+  }, []);
+
+  useEffect(() => {
+    if (!active) { setTimeLeft(''); return; }
     const update = () => {
-      const next = getNextCollectTime();
-      const diff = Math.max(0, Math.floor((next - new Date()) / 1000));
-      const min = Math.floor(diff / 60);
-      const sec = diff % 60;
+      const now = new Date();
+      const totalSec = now.getMinutes() * 60 + now.getSeconds();
+      const intervalSec = interval * 60;
+      const remaining = intervalSec - (totalSec % intervalSec);
+      const min = Math.floor(remaining / 60);
+      const sec = remaining % 60;
       setTimeLeft(`${min}:${sec.toString().padStart(2, '0')}`);
     };
     update();
-    const interval = setInterval(update, 1000);
-    return () => clearInterval(interval);
-  }, []);
+    const id = setInterval(update, 1000);
+    return () => clearInterval(id);
+  }, [active, interval]);
 
   return (
     <div style={{
       display: 'flex', alignItems: 'center', gap: 6,
-      padding: '8px 14px', background: '#0f0f12', border: '1px solid #1c1c22',
-      borderRadius: 8, fontSize: '0.78rem', color: '#71717a',
+      padding: '8px 14px', background: '#ffffff', border: '1px solid #e2e8f0',
+      borderRadius: 8, fontSize: '0.78rem', color: '#64748b',
     }}>
-      <Clock size={14} color="#5271ff" />
-      <span>Prochaine collecte auto dans <strong style={{ color: '#e4e4e7' }}>{timeLeft}</strong></span>
+      <Clock size={14} color={active ? '#5271ff' : '#64748b'} />
+      {active ? (
+        <span>Prochaine collecte automatique dans <strong style={{ color: '#1e293b' }}>{timeLeft}</strong> (toutes les {interval} min)</span>
+      ) : (
+        <span>Collecte automatique <strong style={{ color: '#fbbf24' }}>en pause</strong> — utilisez « Collecter » manuellement</span>
+      )}
     </div>
   );
 }
@@ -135,9 +146,9 @@ export default function Cibles() {
 
   const btnStyle = {
     padding: '6px 10px',
-    border: '1px solid #27272a',
+    border: '1px solid #e2e8f0',
     background: 'transparent',
-    color: '#a1a1aa',
+    color: '#475569',
     borderRadius: 6,
     fontSize: '0.78rem',
     display: 'inline-flex',
@@ -148,8 +159,10 @@ export default function Cibles() {
   return (
     <div style={{ maxWidth: 700 }}>
       <h1 style={{ marginBottom: 4 }}>Cibles</h1>
-      <p style={{ color: '#52525b', fontSize: '0.85rem', marginBottom: 24 }}>
-        Hashtags et comptes a surveiller
+      <p style={{ color: '#94a3b8', fontSize: '0.85rem', marginBottom: 24 }}>
+        Les hashtags et comptes que vous suivez. SentiFlow y collecte les tweets (manuellement ou
+        automatiquement) puis les analyse. Toutes les autres pages (Dashboard, Assistant, Alertes)
+        se basent sur ces cibles.
       </p>
 
       {/* Timer */}
@@ -164,10 +177,10 @@ export default function Cibles() {
           style={{
             flex: 1,
             padding: '10px 14px',
-            background: '#0f0f12',
-            border: '1px solid #27272a',
+            background: '#ffffff',
+            border: '1px solid #e2e8f0',
             borderRadius: 8,
-            color: '#fafafa',
+            color: '#0f172a',
             fontSize: '0.88rem',
             outline: 'none',
           }}
@@ -177,10 +190,10 @@ export default function Cibles() {
           onChange={(e) => setType(e.target.value)}
           style={{
             padding: '10px 14px',
-            background: '#0f0f12',
-            border: '1px solid #27272a',
+            background: '#ffffff',
+            border: '1px solid #e2e8f0',
             borderRadius: 8,
-            color: '#e4e4e7',
+            color: '#1e293b',
             fontSize: '0.88rem',
           }}
         >
@@ -274,12 +287,12 @@ export default function Cibles() {
       {message && (
         <div style={{
           padding: '10px 14px',
-          background: '#0f0f12',
-          border: '1px solid #27272a',
+          background: '#ffffff',
+          border: '1px solid #e2e8f0',
           borderRadius: 8,
           marginBottom: 16,
           fontSize: '0.82rem',
-          color: '#a1a1aa',
+          color: '#475569',
         }}>
           {message}
         </div>
@@ -295,17 +308,17 @@ export default function Cibles() {
               alignItems: 'center',
               justifyContent: 'space-between',
               padding: '14px 16px',
-              background: '#0f0f12',
-              border: '1px solid #1c1c22',
+              background: '#ffffff',
+              border: '1px solid #e2e8f0',
               borderRadius: 10,
               marginBottom: 8,
             }}
           >
             <div>
-              <span style={{ color: '#fafafa', fontWeight: 500, fontSize: '0.9rem' }}>
+              <span style={{ color: '#0f172a', fontWeight: 500, fontSize: '0.9rem' }}>
                 {target.name}
               </span>
-              <span style={{ marginLeft: 10, color: '#52525b', fontSize: '0.75rem' }}>
+              <span style={{ marginLeft: 10, color: '#94a3b8', fontSize: '0.75rem' }}>
                 {target.target_type}
               </span>
             </div>
@@ -337,7 +350,7 @@ export default function Cibles() {
         ))}
 
         {targets.length === 0 && (
-          <p style={{ color: '#52525b', textAlign: 'center', padding: 30, fontSize: '0.88rem' }}>
+          <p style={{ color: '#94a3b8', textAlign: 'center', padding: 30, fontSize: '0.88rem' }}>
             Aucune cible. Ajoute un hashtag ou un compte pour commencer.
           </p>
         )}

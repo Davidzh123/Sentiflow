@@ -48,9 +48,9 @@ export default function Admin() {
     }
   };
 
-  const cardStyle = { background: '#0f0f12', border: '1px solid #1c1c22', borderRadius: 12, padding: 20 };
-  const labelStyle = { color: '#52525b', fontSize: '0.72rem', textTransform: 'uppercase', letterSpacing: '0.05em' };
-  const valueStyle = { color: '#fafafa', fontSize: '1.5rem', fontWeight: 700 };
+  const cardStyle = { background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: 12, padding: 20 };
+  const labelStyle = { color: '#94a3b8', fontSize: '0.72rem', textTransform: 'uppercase', letterSpacing: '0.05em' };
+  const valueStyle = { color: '#0f172a', fontSize: '1.5rem', fontWeight: 700 };
   const btnStyle = (color = '#5271ff') => ({
     padding: '8px 14px', background: 'transparent', border: `1px solid ${color}33`,
     borderRadius: 6, color, fontSize: '0.78rem', fontWeight: 500,
@@ -60,12 +60,12 @@ export default function Admin() {
   return (
     <div className="animate-in" style={{ maxWidth: 900 }}>
       <h1 style={{ marginBottom: 4 }}>Administration</h1>
-      <p style={{ color: '#52525b', fontSize: '0.85rem', marginBottom: 28 }}>
+      <p style={{ color: '#94a3b8', fontSize: '0.85rem', marginBottom: 28 }}>
         Controle complet : pipeline, collecte, analyse, BDD
       </p>
 
       {message && (
-        <div style={{ padding: '10px 14px', background: '#0f0f12', border: '1px solid #27272a', borderRadius: 8, marginBottom: 16, fontSize: '0.82rem', color: '#a1a1aa' }}>
+        <div style={{ padding: '10px 14px', background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: 8, marginBottom: 16, fontSize: '0.82rem', color: '#475569' }}>
           {message}
         </div>
       )}
@@ -76,7 +76,7 @@ export default function Admin() {
           <div style={cardStyle}>
             <p style={labelStyle}>Tweets total</p>
             <p style={valueStyle}>{dbOverview.tweets?.total || 0}</p>
-            <p style={{ color: '#71717a', fontSize: '0.72rem' }}>{dbOverview.tweets?.pending || 0} en attente</p>
+            <p style={{ color: '#64748b', fontSize: '0.72rem' }}>{dbOverview.tweets?.pending || 0} en attente</p>
           </div>
           <div style={cardStyle}>
             <p style={labelStyle}>Analyses</p>
@@ -99,12 +99,12 @@ export default function Admin() {
           <div style={cardStyle}>
             <p style={labelStyle}>Appels Groq (LLM)</p>
             <p style={valueStyle}>{dbOverview.api_usage.groq_calls}</p>
-            <p style={{ color: '#71717a', fontSize: '0.72rem' }}>Depuis le dernier reset</p>
+            <p style={{ color: '#64748b', fontSize: '0.72rem' }}>Depuis le dernier reset</p>
           </div>
           <div style={cardStyle}>
             <p style={labelStyle}>Appels Twitter API</p>
             <p style={valueStyle}>{dbOverview.api_usage.twitter_calls}</p>
-            <p style={{ color: '#71717a', fontSize: '0.72rem' }}>
+            <p style={{ color: '#64748b', fontSize: '0.72rem' }}>
               <button onClick={() => doAction('resetUsage', () => api.post('/admin/usage/reset'))} style={{ background: 'none', border: 'none', color: '#5271ff', fontSize: '0.72rem', cursor: 'pointer', textDecoration: 'underline' }}>
                 Remettre a zero
               </button>
@@ -121,11 +121,11 @@ export default function Admin() {
         <div style={cardStyle}>
           {schedule && (
             <div style={{ marginBottom: 16 }}>
-              <p style={{ color: '#a1a1aa', fontSize: '0.82rem', marginBottom: 8 }}>Schedule actuel :</p>
+              <p style={{ color: '#475569', fontSize: '0.82rem', marginBottom: 8 }}>Schedule actuel :</p>
               {Object.entries(schedule).map(([name, config]) => (
-                <div key={name} style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', borderBottom: '1px solid #1c1c22' }}>
-                  <span style={{ color: '#e4e4e7', fontSize: '0.82rem' }}>{name}</span>
-                  <span style={{ color: '#71717a', fontSize: '0.78rem' }}>
+                <div key={name} style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', borderBottom: '1px solid #e2e8f0' }}>
+                  <span style={{ color: '#1e293b', fontSize: '0.82rem' }}>{name}</span>
+                  <span style={{ color: '#64748b', fontSize: '0.78rem' }}>
                     {typeof config.interval_minutes === 'number' ? `${config.interval_minutes} min` : config.interval_minutes}
                   </span>
                 </div>
@@ -145,7 +145,7 @@ export default function Admin() {
             <select
               id="interval-select"
               defaultValue="15"
-              style={{ padding: '6px 10px', background: '#09090b', border: '1px solid #27272a', borderRadius: 6, color: '#e4e4e7', fontSize: '0.78rem' }}
+              style={{ padding: '6px 10px', background: '#f1f5f9', border: '1px solid #e2e8f0', borderRadius: 6, color: '#1e293b', fontSize: '0.78rem' }}
             >
               <option value="5">5 min</option>
               <option value="10">10 min</option>
@@ -172,15 +172,15 @@ export default function Admin() {
         <div style={cardStyle}>
           {pipelineStatus?.last_eval && (
             <div style={{ marginBottom: 16 }}>
-              <p style={{ color: '#a1a1aa', fontSize: '0.82rem', marginBottom: 8 }}>Dernier entrainement :</p>
+              <p style={{ color: '#475569', fontSize: '0.82rem', marginBottom: 8 }}>Dernier entrainement :</p>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10 }}>
                 <div>
                   <p style={labelStyle}>Score ancien</p>
-                  <p style={{ color: '#e4e4e7', fontSize: '1rem', fontWeight: 600 }}>{(pipelineStatus.last_eval.old_score * 100).toFixed(1)}%</p>
+                  <p style={{ color: '#1e293b', fontSize: '1rem', fontWeight: 600 }}>{(pipelineStatus.last_eval.old_score * 100).toFixed(1)}%</p>
                 </div>
                 <div>
                   <p style={labelStyle}>Score nouveau</p>
-                  <p style={{ color: '#e4e4e7', fontSize: '1rem', fontWeight: 600 }}>{(pipelineStatus.last_eval.new_score * 100).toFixed(1)}%</p>
+                  <p style={{ color: '#1e293b', fontSize: '1rem', fontWeight: 600 }}>{(pipelineStatus.last_eval.new_score * 100).toFixed(1)}%</p>
                 </div>
                 <div>
                   <p style={labelStyle}>Remplace</p>
@@ -193,23 +193,23 @@ export default function Admin() {
           )}
           {trainingStats && (
             <div style={{ marginBottom: 16 }}>
-              <p style={{ color: '#a1a1aa', fontSize: '0.82rem', marginBottom: 8 }}>Données qui alimenteront le ré-entraînement :</p>
+              <p style={{ color: '#475569', fontSize: '0.82rem', marginBottom: 8 }}>Données qui alimenteront le ré-entraînement :</p>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10, marginBottom: 10 }}>
-                <div style={{ background: '#09090b', border: '1px solid #1c1c22', borderRadius: 8, padding: 10 }}>
+                <div style={{ background: '#f1f5f9', border: '1px solid #e2e8f0', borderRadius: 8, padding: 10 }}>
                   <p style={labelStyle}>Questions loggées</p>
-                  <p style={{ color: '#fafafa', fontSize: '1.2rem', fontWeight: 700 }}>{trainingStats.question_logs}</p>
+                  <p style={{ color: '#0f172a', fontSize: '1.2rem', fontWeight: 700 }}>{trainingStats.question_logs}</p>
                 </div>
-                <div style={{ background: '#09090b', border: '1px solid #1c1c22', borderRadius: 8, padding: 10 }}>
+                <div style={{ background: '#f1f5f9', border: '1px solid #e2e8f0', borderRadius: 8, padding: 10 }}>
                   <p style={labelStyle}>Nouveaux tweets (depuis dernier train)</p>
                   <p style={{ color: '#34d399', fontSize: '1.2rem', fontWeight: 700 }}>{trainingStats.new_tweets_for_training ?? '-'}</p>
                 </div>
-                <div style={{ background: '#09090b', border: '1px solid #1c1c22', borderRadius: 8, padding: 10 }}>
+                <div style={{ background: '#f1f5f9', border: '1px solid #e2e8f0', borderRadius: 8, padding: 10 }}>
                   <p style={labelStyle}>Corrections + feedbacks</p>
-                  <p style={{ color: '#fafafa', fontSize: '1.2rem', fontWeight: 700 }}>{(trainingStats.user_corrections || 0) + (trainingStats.llm_feedbacks || 0)}</p>
+                  <p style={{ color: '#0f172a', fontSize: '1.2rem', fontWeight: 700 }}>{(trainingStats.user_corrections || 0) + (trainingStats.llm_feedbacks || 0)}</p>
                 </div>
               </div>
-              <p style={{ color: '#71717a', fontSize: '0.74rem' }}>
-                Dernier entraînement : <strong style={{ color: '#a1a1aa' }}>{trainingStats.last_training_at ? trainingStats.last_training_at.slice(0, 16) : 'jamais'}</strong>
+              <p style={{ color: '#64748b', fontSize: '0.74rem' }}>
+                Dernier entraînement : <strong style={{ color: '#475569' }}>{trainingStats.last_training_at ? trainingStats.last_training_at.slice(0, 16) : 'jamais'}</strong>
                 {' · '}Fichier source exécuté : <code style={{ color: '#5271ff' }}>{trainingStats.training_source_file || 'scripts/auto_retrain_pipeline.py'}</code>
               </p>
             </div>
@@ -254,6 +254,16 @@ export default function Admin() {
           <QuestionLogs />
         </div>
       </section>
+
+      {/* Sécurité / Modération du RAG */}
+      <section style={{ marginTop: 32 }}>
+        <h2 style={{ fontSize: '1.1rem', marginBottom: 14, display: 'flex', alignItems: 'center', gap: 8 }}>
+          <Square size={18} color="#5271ff" /> Sécurité — Modération du RAG
+        </h2>
+        <div style={cardStyle}>
+          <ModerationAdmin />
+        </div>
+      </section>
     </div>
   );
 }
@@ -265,18 +275,18 @@ function AllDashboards() {
     api.get('/admin/dashboards').then((r) => setDashboards(r.data || [])).catch(() => {});
   }, []);
 
-  if (!dashboards.length) return <p style={{ color: '#52525b', fontSize: '0.82rem' }}>Aucun dashboard genere.</p>;
+  if (!dashboards.length) return <p style={{ color: '#94a3b8', fontSize: '0.82rem' }}>Aucun dashboard genere.</p>;
 
   return (
     <div style={{ maxHeight: 300, overflowY: 'auto' }}>
       {dashboards.map((d) => (
-        <div key={d.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 0', borderBottom: '1px solid #1c1c22' }}>
+        <div key={d.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 0', borderBottom: '1px solid #e2e8f0' }}>
           <div>
-            <span style={{ color: '#e4e4e7', fontSize: '0.82rem' }}>{d.title}</span>
-            <span style={{ color: '#3f3f46', fontSize: '0.7rem', marginLeft: 8 }}>par {d.user}</span>
+            <span style={{ color: '#1e293b', fontSize: '0.82rem' }}>{d.title}</span>
+            <span style={{ color: '#cbd5e1', fontSize: '0.7rem', marginLeft: 8 }}>par {d.user}</span>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <span style={{ color: '#52525b', fontSize: '0.7rem' }}>{d.created_at?.slice(0, 16)}</span>
+            <span style={{ color: '#94a3b8', fontSize: '0.7rem' }}>{d.created_at?.slice(0, 16)}</span>
             <a href={`/dashboards/generated/${d.id}`} style={{ fontSize: '0.7rem', color: '#5271ff' }}>Voir</a>
           </div>
         </div>
@@ -332,12 +342,12 @@ function UsersTable() {
   return (
     <div>
       {users.map((u) => (
-        <div key={u.id} style={{ marginBottom: 16, paddingBottom: 16, borderBottom: '1px solid #1c1c22' }}>
+        <div key={u.id} style={{ marginBottom: 16, paddingBottom: 16, borderBottom: '1px solid #e2e8f0' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
             <div>
-              <span style={{ color: '#e4e4e7', fontSize: '0.9rem', fontWeight: 500 }}>{u.username}</span>
-              <span style={{ color: '#52525b', fontSize: '0.75rem', marginLeft: 10 }}>{u.email}</span>
-              <span style={{ color: '#3f3f46', fontSize: '0.7rem', marginLeft: 10 }}>
+              <span style={{ color: '#1e293b', fontSize: '0.9rem', fontWeight: 500 }}>{u.username}</span>
+              <span style={{ color: '#94a3b8', fontSize: '0.75rem', marginLeft: 10 }}>{u.email}</span>
+              <span style={{ color: '#cbd5e1', fontSize: '0.7rem', marginLeft: 10 }}>
                 {u.total_targets} cibles · {u.total_tweets} tweets
               </span>
             </div>
@@ -345,7 +355,7 @@ function UsersTable() {
               <select
                 value={u.plan || 'free'}
                 onChange={(e) => changePlan(u.id, e.target.value)}
-                style={{ padding: '4px 8px', borderRadius: 4, fontSize: '0.7rem', background: '#09090b', border: '1px solid #27272a', color: '#e4e4e7' }}
+                style={{ padding: '4px 8px', borderRadius: 4, fontSize: '0.7rem', background: '#f1f5f9', border: '1px solid #e2e8f0', color: '#1e293b' }}
               >
                 <option value="free">Free</option>
                 <option value="standard">Standard</option>
@@ -355,7 +365,7 @@ function UsersTable() {
                 onClick={() => toggleAdmin(u.id)}
                 style={{
                   padding: '4px 10px', borderRadius: 4, fontSize: '0.7rem', fontWeight: 500, border: 'none',
-                  background: u.is_admin ? '#5271ff' : '#27272a', color: u.is_admin ? 'white' : '#71717a',
+                  background: u.is_admin ? '#5271ff' : '#e2e8f0', color: u.is_admin ? 'white' : '#64748b',
                 }}
               >
                 {u.is_admin ? 'Admin' : 'User'}
@@ -367,16 +377,16 @@ function UsersTable() {
               {u.targets.map((t) => (
                 <div key={t.id}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '4px 0', fontSize: '0.75rem' }}>
-                    <span style={{ color: '#a1a1aa' }}>{t.name} <span style={{ color: '#3f3f46' }}>({t.type})</span></span>
+                    <span style={{ color: '#475569' }}>{t.name} <span style={{ color: '#cbd5e1' }}>({t.type})</span></span>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                      <span style={{ color: '#52525b' }}>{t.tweets} tweets ({t.analyzed} analyses)</span>
+                      <span style={{ color: '#94a3b8' }}>{t.tweets} tweets ({t.analyzed} analyses)</span>
                       <button
                         onClick={() => viewTweets(t.id, t.name)}
                         style={{
                           padding: '3px 8px', borderRadius: 4, fontSize: '0.68rem',
-                          background: selectedTarget === t.id ? '#5271ff' : '#18181b',
-                          color: selectedTarget === t.id ? 'white' : '#71717a',
-                          border: '1px solid #27272a', cursor: 'pointer',
+                          background: selectedTarget === t.id ? '#5271ff' : '#f1f5f9',
+                          color: selectedTarget === t.id ? 'white' : '#64748b',
+                          border: '1px solid #e2e8f0', cursor: 'pointer',
                         }}
                       >
                         {selectedTarget === t.id ? 'Fermer' : 'Voir tweets'}
@@ -384,17 +394,17 @@ function UsersTable() {
                     </div>
                   </div>
                   {selectedTarget === t.id && (
-                    <div style={{ marginTop: 8, marginBottom: 12, marginLeft: 8, padding: 12, background: '#09090b', borderRadius: 8, border: '1px solid #1c1c22' }}>
+                    <div style={{ marginTop: 8, marginBottom: 12, marginLeft: 8, padding: 12, background: '#f1f5f9', borderRadius: 8, border: '1px solid #e2e8f0' }}>
                       {loadingTweets ? (
-                        <p style={{ color: '#52525b', fontSize: '0.75rem' }}>Chargement...</p>
+                        <p style={{ color: '#94a3b8', fontSize: '0.75rem' }}>Chargement...</p>
                       ) : tweets.length === 0 ? (
-                        <p style={{ color: '#52525b', fontSize: '0.75rem' }}>Aucun tweet</p>
+                        <p style={{ color: '#94a3b8', fontSize: '0.75rem' }}>Aucun tweet</p>
                       ) : (
                         <div style={{ maxHeight: 300, overflowY: 'auto' }}>
                           {tweets.map((tw, i) => (
-                            <div key={i} style={{ marginBottom: 10, paddingBottom: 8, borderBottom: '1px solid #1c1c22' }}>
+                            <div key={i} style={{ marginBottom: 10, paddingBottom: 8, borderBottom: '1px solid #e2e8f0' }}>
                               <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 3 }}>
-                                <span style={{ color: '#e4e4e7', fontSize: '0.72rem', fontWeight: 500 }}>@{tw.author_username || '?'}</span>
+                                <span style={{ color: '#1e293b', fontSize: '0.72rem', fontWeight: 500 }}>@{tw.author_username || '?'}</span>
                                 <div style={{ display: 'flex', gap: 6 }}>
                                   {tw.sentiment && (
                                     <span style={{
@@ -409,7 +419,7 @@ function UsersTable() {
                                   )}
                                 </div>
                               </div>
-                              <p style={{ color: '#a1a1aa', fontSize: '0.72rem', lineHeight: 1.4 }}>
+                              <p style={{ color: '#475569', fontSize: '0.72rem', lineHeight: 1.4 }}>
                                 {tw.text?.slice(0, 200)}
                               </p>
                             </div>
@@ -458,23 +468,23 @@ function TicketsAdmin() {
           <button key={s || 'all'} onClick={() => setFilter(s)}
             style={{
               padding: '4px 10px', borderRadius: 4, fontSize: '0.72rem', cursor: 'pointer',
-              background: filter === s ? '#5271ff' : '#18181b', color: filter === s ? 'white' : '#71717a',
-              border: '1px solid #27272a',
+              background: filter === s ? '#5271ff' : '#f1f5f9', color: filter === s ? 'white' : '#64748b',
+              border: '1px solid #e2e8f0',
             }}>
             {s === '' ? 'Tous' : s === 'open' ? 'Ouverts' : s === 'in_progress' ? 'En cours' : 'Résolus'}
           </button>
         ))}
       </div>
       {tickets.length === 0 ? (
-        <p style={{ color: '#52525b', fontSize: '0.82rem' }}>Aucun ticket.</p>
+        <p style={{ color: '#94a3b8', fontSize: '0.82rem' }}>Aucun ticket.</p>
       ) : (
         tickets.map((t) => (
-          <div key={t.id} style={{ marginBottom: 12, paddingBottom: 12, borderBottom: '1px solid #1c1c22' }}>
+          <div key={t.id} style={{ marginBottom: 12, paddingBottom: 12, borderBottom: '1px solid #e2e8f0' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <span style={{ color: '#e4e4e7', fontSize: '0.85rem', fontWeight: 500 }}>{t.subject}</span>
-              <span style={{ color: '#71717a', fontSize: '0.7rem' }}>{t.user || 'anonyme'} · {t.category} · {t.status}</span>
+              <span style={{ color: '#1e293b', fontSize: '0.85rem', fontWeight: 500 }}>{t.subject}</span>
+              <span style={{ color: '#64748b', fontSize: '0.7rem' }}>{t.user || 'anonyme'} · {t.category} · {t.status}</span>
             </div>
-            <p style={{ color: '#a1a1aa', fontSize: '0.8rem', margin: '6px 0' }}>{t.message}</p>
+            <p style={{ color: '#475569', fontSize: '0.8rem', margin: '6px 0' }}>{t.message}</p>
             {t.admin_response ? (
               <p style={{ color: '#34d399', fontSize: '0.78rem' }}>Réponse : {t.admin_response}</p>
             ) : (
@@ -482,7 +492,7 @@ function TicketsAdmin() {
                 <input
                   type="text" placeholder="Répondre..." value={responses[t.id] || ''}
                   onChange={(e) => setResponses((r) => ({ ...r, [t.id]: e.target.value }))}
-                  style={{ flex: 1, padding: '6px 8px', background: '#09090b', border: '1px solid #27272a', borderRadius: 6, color: '#e4e4e7', fontSize: '0.78rem' }}
+                  style={{ flex: 1, padding: '6px 8px', background: '#f1f5f9', border: '1px solid #e2e8f0', borderRadius: 6, color: '#1e293b', fontSize: '0.78rem' }}
                 />
                 <button onClick={() => respond(t.id)}
                   style={{ padding: '6px 12px', background: '#5271ff', border: 'none', borderRadius: 6, color: 'white', fontSize: '0.75rem', cursor: 'pointer' }}>
@@ -506,13 +516,13 @@ function QuestionLogs() {
       .catch(() => {});
   }, []);
 
-  if (!logs.length) return <p style={{ color: '#52525b', fontSize: '0.82rem' }}>Aucune question loggée.</p>;
+  if (!logs.length) return <p style={{ color: '#94a3b8', fontSize: '0.82rem' }}>Aucune question loggée.</p>;
 
   return (
     <div style={{ maxHeight: 400, overflowY: 'auto' }}>
       <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.76rem' }}>
         <thead>
-          <tr style={{ color: '#52525b', textAlign: 'left' }}>
+          <tr style={{ color: '#94a3b8', textAlign: 'left' }}>
             <th style={{ padding: '6px 8px' }}>Question</th>
             <th style={{ padding: '6px 8px' }}>Intent</th>
             <th style={{ padding: '6px 8px' }}>Mode</th>
@@ -522,16 +532,119 @@ function QuestionLogs() {
         </thead>
         <tbody>
           {logs.map((q) => (
-            <tr key={q.id} style={{ borderTop: '1px solid #1c1c22', color: '#a1a1aa' }}>
+            <tr key={q.id} style={{ borderTop: '1px solid #e2e8f0', color: '#475569' }}>
               <td style={{ padding: '6px 8px', maxWidth: 280 }}>{q.question}</td>
               <td style={{ padding: '6px 8px', color: '#5271ff' }}>{q.intent_detected || '-'}</td>
               <td style={{ padding: '6px 8px' }}>{q.mode_used || '-'}</td>
               <td style={{ padding: '6px 8px' }}>{q.response_time_ms ? `${q.response_time_ms}ms` : '-'}</td>
-              <td style={{ padding: '6px 8px', color: '#52525b' }}>{q.created_at?.slice(0, 16)}</td>
+              <td style={{ padding: '6px 8px', color: '#94a3b8' }}>{q.created_at?.slice(0, 16)}</td>
             </tr>
           ))}
         </tbody>
       </table>
+    </div>
+  );
+}
+
+function ModerationAdmin() {
+  const [data, setData] = useState(null);
+  const [word, setWord] = useState('');
+  const [msg, setMsg] = useState('');
+  const [editId, setEditId] = useState(null);
+  const [editVal, setEditVal] = useState('');
+
+  const load = () => api.get('/admin/moderation').then((r) => setData(r.data)).catch(() => {});
+  useEffect(() => { load(); }, []);
+
+  const add = async () => {
+    setMsg('');
+    if (word.trim().length < 2) { setMsg('Mot trop court.'); return; }
+    try {
+      await api.post('/admin/moderation', { word: word.trim(), category: 'custom' });
+      setWord(''); load();
+    } catch (e) {
+      setMsg(e?.response?.data?.detail || 'Erreur');
+    }
+  };
+
+  const remove = async (id) => {
+    try { await api.delete(`/admin/moderation/${id}`); load(); } catch { /* ignore */ }
+  };
+
+  const startEdit = (w) => { setEditId(w.id); setEditVal(w.word); setMsg(''); };
+
+  const saveEdit = async (id) => {
+    setMsg('');
+    if (editVal.trim().length < 2) { setMsg('Mot trop court.'); return; }
+    try {
+      await api.put(`/admin/moderation/${id}`, { word: editVal.trim(), category: 'custom' });
+      setEditId(null); setEditVal(''); load();
+    } catch (e) {
+      setMsg(e?.response?.data?.detail || 'Erreur');
+    }
+  };
+
+  if (!data) return <p style={{ color: '#94a3b8', fontSize: '0.82rem' }}>Chargement...</p>;
+
+  return (
+    <div>
+      <p style={{ color: '#64748b', fontSize: '0.82rem', marginBottom: 14 }}>
+        Les questions contenant ces thèmes/mots sont automatiquement bloquées dans l'assistant et le RAG.
+      </p>
+
+      {/* Catégories de base */}
+      <div style={{ marginBottom: 18 }}>
+        <p style={{ color: '#475569', fontSize: '0.8rem', fontWeight: 600, marginBottom: 8 }}>Thèmes bloqués (de base)</p>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+          {Object.keys(data.base_categories || {}).map((cat) => (
+            <span key={cat} style={{ background: 'rgba(248,113,113,0.12)', color: '#dc2626', padding: '3px 10px', borderRadius: 12, fontSize: '0.74rem', fontWeight: 600 }}>
+              {cat.replace(/_/g, ' ')}
+            </span>
+          ))}
+        </div>
+      </div>
+
+      {/* Mots personnalisés */}
+      <div>
+        <p style={{ color: '#475569', fontSize: '0.8rem', fontWeight: 600, marginBottom: 8 }}>Mots/thèmes bloqués personnalisés</p>
+        <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
+          <input
+            value={word} onChange={(e) => setWord(e.target.value)}
+            placeholder="ajouter un mot ou une expression à bloquer"
+            style={{ flex: 1, padding: '8px 10px', background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: 6, color: '#0f172a', fontSize: '0.82rem' }}
+          />
+          <button onClick={add} style={{ padding: '8px 14px', background: '#5271ff', color: '#fff', border: 'none', borderRadius: 6, fontSize: '0.8rem', cursor: 'pointer' }}>
+            Bloquer
+          </button>
+        </div>
+        {msg && <p style={{ color: '#dc2626', fontSize: '0.78rem', marginBottom: 8 }}>{msg}</p>}
+        {(data.custom_words || []).length === 0 ? (
+          <p style={{ color: '#94a3b8', fontSize: '0.8rem' }}>Aucun mot personnalisé.</p>
+        ) : (
+          <div style={{ display: 'grid', gap: 6 }}>
+            {data.custom_words.map((w) => (
+              <div key={w.id} style={{ display: 'flex', alignItems: 'center', gap: 8, background: '#f1f5f9', border: '1px solid #e2e8f0', padding: '6px 10px', borderRadius: 8 }}>
+                {editId === w.id ? (
+                  <>
+                    <input
+                      value={editVal} onChange={(e) => setEditVal(e.target.value)}
+                      style={{ flex: 1, padding: '5px 8px', background: '#fff', border: '1px solid #e2e8f0', borderRadius: 6, color: '#0f172a', fontSize: '0.8rem' }}
+                    />
+                    <button onClick={() => saveEdit(w.id)} style={{ background: '#5271ff', color: '#fff', border: 'none', borderRadius: 6, padding: '5px 10px', fontSize: '0.76rem', cursor: 'pointer' }}>Enregistrer</button>
+                    <button onClick={() => { setEditId(null); setEditVal(''); }} style={{ background: 'none', border: 'none', color: '#64748b', cursor: 'pointer', fontSize: '0.76rem' }}>Annuler</button>
+                  </>
+                ) : (
+                  <>
+                    <span style={{ flex: 1, color: '#334155', fontSize: '0.84rem' }}>{w.word}</span>
+                    <button onClick={() => startEdit(w)} style={{ background: 'none', border: '1px solid #e2e8f0', borderRadius: 6, padding: '4px 10px', color: '#5271ff', fontSize: '0.74rem', cursor: 'pointer' }}>Modifier</button>
+                    <button onClick={() => remove(w.id)} style={{ background: 'none', border: '1px solid #e2e8f0', borderRadius: 6, padding: '4px 10px', color: '#dc2626', fontSize: '0.74rem', cursor: 'pointer' }}>Supprimer</button>
+                  </>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
     </div>
   );
 }

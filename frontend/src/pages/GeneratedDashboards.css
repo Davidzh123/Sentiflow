@@ -14,7 +14,7 @@
 }
 
 .generated-dashboard-list-header p {
-  color: #52525b;
+  color: #94a3b8;
   font-size: 0.85rem;
 }
 
@@ -43,7 +43,7 @@
 }
 
 .generated-info-message {
-  color: #52525b;
+  color: #94a3b8;
   text-align: center;
   padding: 30px;
 }
@@ -51,19 +51,19 @@
 .generated-empty-state {
   text-align: center;
   padding: 48px 20px;
-  background: #0f0f12;
-  border: 1px solid #1c1c22;
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
   border-radius: 12px;
 }
 
 .generated-empty-state h2 {
   margin-bottom: 10px;
-  color: #a1a1aa;
+  color: #475569;
   font-size: 1.1rem;
 }
 
 .generated-empty-state p {
-  color: #52525b;
+  color: #94a3b8;
   font-size: 0.85rem;
   margin-bottom: 20px;
   line-height: 1.6;
@@ -76,25 +76,25 @@
 }
 
 .generated-dashboard-card {
-  background: #0f0f12;
-  border: 1px solid #1c1c22;
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
   border-radius: 10px;
   padding: 20px;
   transition: border-color 0.15s;
 }
 
 .generated-dashboard-card:hover {
-  border-color: #27272a;
+  border-color: #e2e8f0;
 }
 
 .generated-dashboard-card h2 {
   font-size: 0.95rem;
-  color: #fafafa;
+  color: #0f172a;
   margin-bottom: 6px;
 }
 
 .generated-question {
-  color: #71717a;
+  color: #64748b;
   font-size: 0.82rem;
   margin-bottom: 12px;
 }
@@ -102,7 +102,7 @@
 .generated-card-meta {
   display: flex;
   gap: 16px;
-  color: #52525b;
+  color: #94a3b8;
   font-size: 0.75rem;
   margin-bottom: 14px;
 }
@@ -114,10 +114,10 @@
 
 .generated-secondary-link {
   padding: 6px 12px;
-  background: #18181b;
-  border: 1px solid #27272a;
+  background: #f1f5f9;
+  border: 1px solid #e2e8f0;
   border-radius: 6px;
-  color: #e4e4e7;
+  color: #1e293b;
   font-size: 0.78rem;
   text-decoration: none;
 }
@@ -130,9 +130,9 @@
 .dashboard-list-actions button {
   padding: 6px 12px;
   background: transparent;
-  border: 1px solid #27272a;
+  border: 1px solid #e2e8f0;
   border-radius: 6px;
-  color: #71717a;
+  color: #64748b;
   font-size: 0.78rem;
   cursor: pointer;
 }

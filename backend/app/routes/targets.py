@@ -47,6 +47,16 @@ def create_target(
     db.commit()
     db.refresh(target)
 
+    # Notifier les administrateurs de la nouvelle cible
+    try:
+        from backend.app.services.notifications import notify
+        admins = db.query(User).filter(User.is_admin == True).all()  # noqa: E712
+        for a in admins:
+            notify(db, a.id, "system", "Nouvelle cible",
+                   f"{current_user.username} a créé la cible {target.name}.")
+    except Exception:
+        pass
+
     return target
 
 

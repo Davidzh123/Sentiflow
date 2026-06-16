@@ -42,11 +42,26 @@ try:
 except ImportError:
     Ticket = None
 
+try:
+    from backend.app.models.notification import Notification
+except ImportError:
+    Notification = None
+
+try:
+    from backend.app.models.invoice import Invoice
+except ImportError:
+    Invoice = None
+
+try:
+    from backend.app.models.blocked_keyword import BlockedKeyword
+except ImportError:
+    BlockedKeyword = None
+
 __all__ = [
     "User", "Target", "Tweet", "Alert",
     "Account", "SentimentAggregate",
     "Dashboard", "DashboardExport", "Feedback",
     "GeneratedDashboard", "LLMFeedback",
     "TweetEmbedding", "PredictionLog", "DriftLog",
-    "QuestionLog", "Ticket",
+    "QuestionLog", "Ticket", "Notification", "Invoice", "BlockedKeyword",
 ]

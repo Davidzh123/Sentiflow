@@ -63,4 +63,8 @@ def create_alert(
     db.commit()
     db.refresh(alert)
 
+    from backend.app.services.notifications import notify
+    notify(db, current_user.id, "alert", "Alerte créée",
+           f"Alerte « {alert.name} » sur {target.name} ({alert.sentiment}).")
+
     return alert

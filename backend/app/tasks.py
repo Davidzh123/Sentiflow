@@ -78,6 +78,21 @@ def collect_all_targets():
                     f"[CELERY:COLLECTE] 📤 '{target.name}' → {sent} tweets envoyés à Kafka "
                     f"en {target_time:.2f}s"
                 )
+                # Notifier le propriétaire de la cible (uniquement s'il y a du nouveau)
+                if sent > 0 and target.user_id:
+                    try:
+                        from backend.app.services.notifications import notify
+                        analyzed = db.query(func.count(Tweet.id)).filter(
+                            Tweet.target_id == target.id, Tweet.sentiment.isnot(None)
+                        ).scalar() or 0
+                        total = db.query(func.count(Tweet.id)).filter(
+                            Tweet.target_id == target.id
+                        ).scalar() or 0
+                        notify(db, target.user_id, "collect", "Collecte automatique",
+                               f"{sent} nouveaux tweets récupérés sur {target.name} "
+                               f"(total : {total} tweets, {analyzed} analysés).")
+                    except Exception:
+                        pass
             except Exception as e:
                 results.append({"target": target.name, "error": str(e)})
                 logger.error(f"[CELERY:COLLECTE] ❌ Erreur pour '{target.name}': {e}")

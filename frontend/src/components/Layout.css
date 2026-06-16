@@ -1,15 +1,15 @@
 .layout {
   display: flex;
   min-height: 100vh;
-  background: #09090b;
+  background: #f1f5f9;
 }
 
 .sidebar {
   width: 250px;
-  background: #0f0f12;
+  background: #ffffff;
   display: flex;
   flex-direction: column;
-  border-right: 1px solid #1c1c22;
+  border-right: 1px solid #e2e8f0;
   position: fixed;
   top: 0;
   left: 0;
@@ -19,7 +19,7 @@
 
 .sidebar-header {
   padding: 22px 18px;
-  border-bottom: 1px solid #1c1c22;
+  border-bottom: 1px solid #e2e8f0;
 }
 
 .logo-row {
@@ -37,13 +37,13 @@
 .sidebar-header h2 {
   font-size: 1.05rem;
   font-weight: 700;
-  color: #fafafa;
+  color: #0f172a;
   letter-spacing: -0.02em;
 }
 
 .sidebar-header .subtitle {
   font-size: 0.68rem;
-  color: #52525b;
+  color: #94a3b8;
   margin-top: 1px;
   text-transform: uppercase;
   letter-spacing: 0.06em;
@@ -60,7 +60,7 @@
   align-items: center;
   gap: 12px;
   padding: 10px 14px;
-  color: #71717a;
+  color: #64748b;
   text-decoration: none;
   border-radius: 8px;
   margin-bottom: 2px;
@@ -71,8 +71,8 @@
 }
 
 .nav-item:hover {
-  background: #18181b;
-  color: #e4e4e7;
+  background: #f1f5f9;
+  color: #1e293b;
 }
 
 .nav-item.active {
@@ -83,7 +83,7 @@
 
 .sidebar-footer {
   padding: 16px;
-  border-top: 1px solid #1c1c22;
+  border-top: 1px solid #e2e8f0;
 }
 
 .collect-timer {
@@ -96,7 +96,7 @@
   border: 1px solid rgba(82, 113, 255, 0.1);
   border-radius: 6px;
   font-size: 0.7rem;
-  color: #71717a;
+  color: #64748b;
 }
 
 .collect-timer strong {
@@ -136,7 +136,7 @@
 
 .user-name {
   font-size: 0.84rem;
-  color: #e4e4e7;
+  color: #1e293b;
   display: block;
 }
 
@@ -157,8 +157,8 @@
   width: 100%;
   padding: 8px 12px;
   background: transparent;
-  border: 1px solid #1c1c22;
-  color: #71717a;
+  border: 1px solid #e2e8f0;
+  color: #64748b;
   border-radius: 6px;
   font-size: 0.82rem;
 }

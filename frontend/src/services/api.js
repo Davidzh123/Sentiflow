@@ -36,7 +36,11 @@ export const login = (email, password) =>
 export const register = (email, username, password) =>
   api.post('/auth/register', { email, username, password });
 
+export const resetPassword = (email, newPassword) =>
+  api.post('/auth/reset-password', { email, new_password: newPassword });
+
 export const getMe = () => api.get('/auth/me');
+export const updateProfile = (data) => api.patch('/auth/profile', data);
 
 // Targets
 export const getTargets = () => api.get('/targets/');
@@ -149,5 +153,25 @@ export const adminQuestionLogs = (limit = 100) =>
 export const adminListUsers = () => api.get('/admin/users');
 export const adminSetUserPlan = (userId, plan) =>
   api.patch(`/admin/users/${userId}/plan`, { plan });
+
+// Admin : modération / sécurité RAG
+export const adminGetModeration = () => api.get('/admin/moderation');
+export const adminAddBlockedWord = (word, category = 'custom') =>
+  api.post('/admin/moderation', { word, category });
+export const adminUpdateBlockedWord = (id, word, category = 'custom') =>
+  api.put(`/admin/moderation/${id}`, { word, category });
+export const adminDeleteBlockedWord = (id) => api.delete(`/admin/moderation/${id}`);
+
+// Billing / abonnement (paiement simulé)
+export const subscribePlan = (plan, cardName) =>
+  api.post('/billing/subscribe', { plan, card_name: cardName });
+export const getInvoices = () => api.get('/billing/invoices');
+
+// Notifications
+export const getNotifications = (limit = 50) =>
+  api.get('/notifications/mine', { params: { limit } });
+export const getUnreadCount = () => api.get('/notifications/unread-count');
+export const markNotificationRead = (id) => api.post(`/notifications/${id}/read`);
+export const markAllNotificationsRead = () => api.post('/notifications/read-all');
 
 export default api;

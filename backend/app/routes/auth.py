@@ -49,6 +49,18 @@ def register(data: RegisterRequest, db: Session = Depends(get_db)):
     db.commit()
     db.refresh(user)
 
+    # Notifications : bienvenue + alerte admin
+    try:
+        from backend.app.services.notifications import notify
+        notify(db, user.id, "system", "Bienvenue sur SentiFlow",
+               "Votre compte est créé. Ajoutez un sujet à suivre pour commencer.")
+        for a in db.query(User).filter(User.is_admin == True).all():  # noqa: E712
+            if a.id != user.id:
+                notify(db, a.id, "system", "Nouvel utilisateur",
+                       f"{user.username} ({user.email}) vient de créer un compte.")
+    except Exception:
+        pass
+
     token = create_access_token(user.id)
 
     return {
@@ -112,3 +124,85 @@ def my_plan(current_user: User = Depends(get_current_user)):
         "quota": get_ai_quota_status(current_user),
         "catalog": PLANS,
     }
+
+
+class ProfileUpdate(BaseModel):
+    email: EmailStr | None = None
+    password: str | None = None
+    current_password: str | None = None
+
+
+@router.patch("/profile")
+def update_profile(
+    data: ProfileUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """L'utilisateur modifie son email et/ou son mot de passe."""
+    from backend.app.services.notifications import notify
+
+    changes = []
+
+    if data.email and data.email != current_user.email:
+        existing = db.query(User).filter(User.email == data.email, User.id != current_user.id).first()
+        if existing:
+            raise HTTPException(status_code=400, detail="Cet email est déjà utilisé.")
+        old_email = current_user.email
+        current_user.email = data.email
+        changes.append("email")
+        notify(db, current_user.id, "system", "Email modifié",
+               f"Votre email a été changé en {data.email}.")
+        for a in db.query(User).filter(User.is_admin == True).all():  # noqa: E712
+            if a.id != current_user.id:
+                notify(db, a.id, "system", "Email utilisateur modifié",
+                       f"{current_user.username} a changé son email ({old_email} → {data.email}).")
+
+    if data.password:
+        if len(data.password) < 4:
+            raise HTTPException(status_code=400, detail="Mot de passe trop court.")
+        current_user.hashed_password = hash_password(data.password)
+        changes.append("mot de passe")
+        notify(db, current_user.id, "system", "Mot de passe modifié",
+               "Votre mot de passe a été mis à jour.")
+        for a in db.query(User).filter(User.is_admin == True).all():  # noqa: E712
+            if a.id != current_user.id:
+                notify(db, a.id, "system", "Mot de passe utilisateur modifié",
+                       f"{current_user.username} a changé son mot de passe.")
+
+    if not changes:
+        raise HTTPException(status_code=400, detail="Aucune modification fournie.")
+
+    db.commit()
+    return {
+        "id": current_user.id,
+        "email": current_user.email,
+        "username": current_user.username,
+        "changed": changes,
+    }
+
+
+class ResetPasswordRequest(BaseModel):
+    email: EmailStr
+    new_password: str
+
+
+@router.post("/reset-password")
+def reset_password(data: ResetPasswordRequest, db: Session = Depends(get_db)):
+    """
+    Réinitialise le mot de passe à partir de l'email (DÉMO : sans vérification par email).
+    En production, il faudrait un lien/token envoyé par email.
+    """
+    if len(data.new_password) < 4:
+        raise HTTPException(status_code=400, detail="Mot de passe trop court (min 4 caractères).")
+    user = db.query(User).filter(User.email == data.email).first()
+    # Réponse identique que l'email existe ou non (évite l'énumération de comptes)
+    if user:
+        user.hashed_password = hash_password(data.new_password)
+        db.commit()
+        try:
+            from backend.app.services.notifications import notify
+            notify(db, user.id, "system", "Mot de passe réinitialisé",
+                   "Votre mot de passe a été réinitialisé depuis la page de connexion.")
+        except Exception:
+            pass
+    return {"message": "Si un compte existe avec cet email, le mot de passe a été réinitialisé."}

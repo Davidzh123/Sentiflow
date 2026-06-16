@@ -54,7 +54,7 @@ export default function Support() {
   return (
     <div style={{ maxWidth: 760, margin: '0 auto' }}>
       <h1 style={{ marginBottom: 4 }}>Support</h1>
-      <p style={{ color: '#71717a', fontSize: '0.85rem', marginBottom: 20 }}>
+      <p style={{ color: '#64748b', fontSize: '0.85rem', marginBottom: 20 }}>
         Une question, un bug, une demande de changement d'offre ? Envoyez un ticket à l'équipe.
       </p>
 
@@ -85,7 +85,7 @@ export default function Support() {
 
       <h3 style={{ marginBottom: 12 }}>Mes tickets</h3>
       {tickets.length === 0 ? (
-        <p style={{ color: '#71717a', fontSize: '0.85rem' }}>Aucun ticket pour le moment.</p>
+        <p style={{ color: '#64748b', fontSize: '0.85rem' }}>Aucun ticket pour le moment.</p>
       ) : (
         <div style={{ display: 'grid', gap: 10 }}>
           {tickets.map((t) => {
@@ -98,7 +98,7 @@ export default function Support() {
                     {st.text}
                   </span>
                 </div>
-                <p style={{ color: '#a1a1aa', fontSize: '0.84rem', marginTop: 6 }}>{t.message}</p>
+                <p style={{ color: '#475569', fontSize: '0.84rem', marginTop: 6 }}>{t.message}</p>
                 {t.admin_response && (
                   <div style={{ marginTop: 10, padding: 10, background: 'rgba(82,113,255,0.08)', borderRadius: 8, borderLeft: '3px solid #5271ff' }}>
                     <span style={{ fontSize: '0.72rem', color: '#5271ff', textTransform: 'uppercase' }}>Réponse de l'équipe</span>

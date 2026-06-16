@@ -101,6 +101,9 @@ def get_features(user: Optional[User]) -> dict[str, Any]:
 
 
 def has_feature(user: Optional[User], feature: str) -> bool:
+    # Les administrateurs ont accès à toutes les fonctionnalités
+    if user is not None and getattr(user, "is_admin", False):
+        return True
     config = get_plan_config(get_plan_name(user))
     return bool(config.get(feature, False))
 
