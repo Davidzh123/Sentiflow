@@ -1,25 +1,33 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { login as apiLogin, register as apiRegister } from '../services/api';
+import { login as apiLogin, register as apiRegister, resetPassword } from '../services/api';
 
 export default function Login() {
-  const [isRegister, setIsRegister] = useState(false);
+  const [mode, setMode] = useState('login'); // login | register | reset
   const [email, setEmail] = useState('');
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
+  const [info, setInfo] = useState('');
   const [loading, setLoading] = useState(false);
   const { loginUser } = useAuth();
   const navigate = useNavigate();
 
+  const isRegister = mode === 'register';
+  const isReset = mode === 'reset';
+
   const handleSubmit = async (e) => {
     e.preventDefault();
-    setError('');
+    setError(''); setInfo('');
     setLoading(true);
 
     try {
-      if (isRegister) {
+      if (isReset) {
+        const res = await resetPassword(email, password);
+        setInfo(res.data?.message || 'Mot de passe réinitialisé.');
+        setMode('login'); setPassword('');
+      } else if (isRegister) {
         const res = await apiRegister(email, username, password);
         loginUser(res.data.access_token, res.data.user);
         navigate('/assistant');
@@ -30,7 +38,7 @@ export default function Login() {
       }
     } catch (err) {
       const detail = err?.response?.data?.detail;
-      setError(typeof detail === 'string' ? detail : 'Erreur de connexion');
+      setError(typeof detail === 'string' ? detail : 'Erreur');
     } finally {
       setLoading(false);
     }
@@ -39,20 +47,22 @@ export default function Login() {
   const inputStyle = {
     width: '100%',
     padding: '12px 14px',
-    background: '#0f0f12',
-    border: '1px solid #27272a',
+    background: '#ffffff',
+    border: '1px solid #e2e8f0',
     borderRadius: 8,
-    color: '#fafafa',
+    color: '#0f172a',
     fontSize: '0.9rem',
     outline: 'none',
   };
 
   return (
     <div style={{ maxWidth: 380, margin: '80px auto' }}>
-      <h1 style={{ marginBottom: 8 }}>{isRegister ? 'Creer un compte' : 'Connexion'}</h1>
-      <p style={{ color: '#52525b', fontSize: '0.85rem', marginBottom: 28 }}>
-        {isRegister ? 'Inscris-toi pour utiliser SentiFlow' : 'Connecte-toi a ton compte'}
+      <h1 style={{ marginBottom: 8 }}>{isReset ? 'Mot de passe oublié' : isRegister ? 'Creer un compte' : 'Connexion'}</h1>
+      <p style={{ color: '#94a3b8', fontSize: '0.85rem', marginBottom: 28 }}>
+        {isReset ? 'Entrez votre email et un nouveau mot de passe' : isRegister ? 'Inscris-toi pour utiliser SentiFlow' : 'Connecte-toi a ton compte'}
       </p>
+
+      {info && <p style={{ color: '#16a34a', fontSize: '0.82rem', marginBottom: 14 }}>{info}</p>}
 
       <form onSubmit={handleSubmit}>
         <div style={{ marginBottom: 14 }}>
@@ -82,7 +92,7 @@ export default function Login() {
         <div style={{ marginBottom: 20 }}>
           <input
             type="password"
-            placeholder="Mot de passe"
+            placeholder={isReset ? 'Nouveau mot de passe' : 'Mot de passe'}
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             required
@@ -109,18 +119,38 @@ export default function Login() {
             opacity: loading ? 0.6 : 1,
           }}
         >
-          {loading ? 'Chargement...' : (isRegister ? "S'inscrire" : 'Se connecter')}
+          {loading ? 'Chargement...' : (isReset ? 'Réinitialiser' : isRegister ? "S'inscrire" : 'Se connecter')}
         </button>
       </form>
 
-      <p style={{ marginTop: 20, color: '#71717a', fontSize: '0.82rem', textAlign: 'center' }}>
-        {isRegister ? 'Deja un compte ? ' : 'Pas de compte ? '}
-        <button
-          onClick={() => { setIsRegister(!isRegister); setError(''); }}
-          style={{ background: 'none', border: 'none', color: '#5271ff', fontSize: '0.82rem', textDecoration: 'underline' }}
-        >
-          {isRegister ? 'Se connecter' : "S'inscrire"}
-        </button>
+      {!isReset && !isRegister && (
+        <p style={{ marginTop: 14, textAlign: 'center' }}>
+          <button onClick={() => { setMode('reset'); setError(''); setInfo(''); }}
+            style={{ background: 'none', border: 'none', color: '#64748b', fontSize: '0.8rem', textDecoration: 'underline' }}>
+            Mot de passe oublié ?
+          </button>
+        </p>
+      )}
+
+      <p style={{ marginTop: 16, color: '#64748b', fontSize: '0.82rem', textAlign: 'center' }}>
+        {isReset ? (
+          <>
+            <button onClick={() => { setMode('login'); setError(''); setInfo(''); }}
+              style={{ background: 'none', border: 'none', color: '#5271ff', fontSize: '0.82rem', textDecoration: 'underline' }}>
+              ← Retour à la connexion
+            </button>
+          </>
+        ) : (
+          <>
+            {isRegister ? 'Deja un compte ? ' : 'Pas de compte ? '}
+            <button
+              onClick={() => { setMode(isRegister ? 'login' : 'register'); setError(''); setInfo(''); }}
+              style={{ background: 'none', border: 'none', color: '#5271ff', fontSize: '0.82rem', textDecoration: 'underline' }}
+            >
+              {isRegister ? 'Se connecter' : "S'inscrire"}
+            </button>
+          </>
+        )}
       </p>
     </div>
   );

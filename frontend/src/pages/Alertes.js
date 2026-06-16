@@ -37,7 +37,7 @@ export default function Alertes() {
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 }}>
         <div>
           <h1 style={{ marginBottom: 4 }}>Alertes</h1>
-          <p style={{ color: '#52525b', fontSize: '0.85rem' }}>
+          <p style={{ color: '#94a3b8', fontSize: '0.85rem' }}>
             Notification quand un sentiment depasse un seuil
           </p>
         </div>
@@ -61,7 +61,7 @@ export default function Alertes() {
       </div>
 
       {message && (
-        <div style={{ padding: '10px 14px', background: '#0f0f12', border: '1px solid #27272a', borderRadius: 8, marginBottom: 16, fontSize: '0.82rem', color: '#a1a1aa' }}>
+        <div style={{ padding: '10px 14px', background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: 8, marginBottom: 16, fontSize: '0.82rem', color: '#475569' }}>
           {message}
         </div>
       )}
@@ -69,8 +69,8 @@ export default function Alertes() {
       {showForm && (
         <form onSubmit={handleCreate} style={{
           padding: 20,
-          background: '#0f0f12',
-          border: '1px solid #1c1c22',
+          background: '#ffffff',
+          border: '1px solid #e2e8f0',
           borderRadius: 10,
           marginBottom: 20,
           display: 'flex',
@@ -80,7 +80,7 @@ export default function Alertes() {
           <select
             value={form.target_id}
             onChange={(e) => setForm({ ...form, target_id: e.target.value })}
-            style={{ padding: '10px 14px', background: '#09090b', border: '1px solid #27272a', borderRadius: 8, color: '#e4e4e7' }}
+            style={{ padding: '10px 14px', background: '#f1f5f9', border: '1px solid #e2e8f0', borderRadius: 8, color: '#1e293b' }}
           >
             <option value="">Choisir une cible</option>
             {targets.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
@@ -89,7 +89,7 @@ export default function Alertes() {
             <select
               value={form.sentiment}
               onChange={(e) => setForm({ ...form, sentiment: e.target.value })}
-              style={{ flex: 1, padding: '10px 14px', background: '#09090b', border: '1px solid #27272a', borderRadius: 8, color: '#e4e4e7' }}
+              style={{ flex: 1, padding: '10px 14px', background: '#f1f5f9', border: '1px solid #e2e8f0', borderRadius: 8, color: '#1e293b' }}
             >
               <option value="colere">Colere</option>
               <option value="tristesse">Tristesse</option>
@@ -103,7 +103,7 @@ export default function Alertes() {
               min={5}
               max={100}
               placeholder="Seuil %"
-              style={{ width: 100, padding: '10px 14px', background: '#09090b', border: '1px solid #27272a', borderRadius: 8, color: '#e4e4e7' }}
+              style={{ width: 100, padding: '10px 14px', background: '#f1f5f9', border: '1px solid #e2e8f0', borderRadius: 8, color: '#1e293b' }}
             />
           </div>
           <button type="submit" style={{ padding: '10px', background: '#5271ff', color: 'white', border: 'none', borderRadius: 8, fontWeight: 600 }}>
@@ -116,8 +116,8 @@ export default function Alertes() {
         {alerts.map((alert, i) => (
           <div key={i} style={{
             padding: '14px 16px',
-            background: '#0f0f12',
-            border: '1px solid #1c1c22',
+            background: '#ffffff',
+            border: '1px solid #e2e8f0',
             borderRadius: 10,
             marginBottom: 8,
             display: 'flex',
@@ -125,20 +125,20 @@ export default function Alertes() {
             alignItems: 'center',
           }}>
             <div>
-              <span style={{ color: '#fafafa', fontSize: '0.9rem' }}>
+              <span style={{ color: '#0f172a', fontSize: '0.9rem' }}>
                 {alert.target_name || `Cible #${alert.target_id}`}
               </span>
-              <span style={{ marginLeft: 12, color: '#71717a', fontSize: '0.8rem' }}>
+              <span style={{ marginLeft: 12, color: '#64748b', fontSize: '0.8rem' }}>
                 {alert.sentiment} &gt; {((alert.threshold || 0) * 100).toFixed(0)}%
               </span>
             </div>
-            <span style={{ color: alert.triggered ? '#f87171' : '#52525b', fontSize: '0.75rem' }}>
+            <span style={{ color: alert.triggered ? '#f87171' : '#94a3b8', fontSize: '0.75rem' }}>
               {alert.triggered ? 'Declenchee' : 'Active'}
             </span>
           </div>
         ))}
         {alerts.length === 0 && (
-          <p style={{ color: '#52525b', textAlign: 'center', padding: 30, fontSize: '0.88rem' }}>
+          <p style={{ color: '#94a3b8', textAlign: 'center', padding: 30, fontSize: '0.88rem' }}>
             Aucune alerte configuree.
           </p>
         )}

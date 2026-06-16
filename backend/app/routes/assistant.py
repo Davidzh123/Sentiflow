@@ -41,7 +41,8 @@ AGENT_INTENTS = {"collect_analyze_summarize", "collect_analyze_examples"}
 AGENT_KEYWORDS = {"récupère", "recupere", "collecte", "collecter", "ajoute", "crée", "cree"}
 
 # Mots-clés qui déclenchent une requête BDD
-DB_KEYWORDS = {"mes cibles", "ma base", "combien de tweets", "quelles cibles", "mes données",
+DB_KEYWORDS = {"mes cibles", "ma base", "combien de tweets", "combien de tweet", "nombre de tweet",
+               "nombre de tweets", "quelles cibles", "mes données",
                "répartition", "langues", "statistiques globales", "cibles que j",
                "quoi comme cible", "les cibles", "en base"}
 
@@ -73,6 +74,17 @@ async def assistant_chat(
     """
     _start_time = _time.time()
     question = request.question
+
+    # Garde-fou : bloquer les questions nuisibles / hors cadre
+    from backend.app.services.moderation import check_question
+    try:
+        from backend.app.models.blocked_keyword import BlockedKeyword
+        _extra_blocked = [b.word for b in db.query(BlockedKeyword).all()]
+    except Exception:
+        _extra_blocked = []
+    allowed, reason, _cat = check_question(question, _extra_blocked)
+    if not allowed:
+        return {"mode": "blocked", "answer": reason, "plan": None}
 
     # Récupérer le user connecté
     user_id = _get_user_id_from_request(raw_request, db)
@@ -130,9 +142,25 @@ async def assistant_chat(
     # ============================================
     if mode == "database":
         from sqlalchemy import func as sqlfunc
+        import re as _re
 
         q_lower = question.lower()
-        if "langue" in q_lower or "répartition des langue" in q_lower:
+
+        # Cible éventuellement mentionnée (#x / @x ou nom de cible connu).
+        # Recherche GLOBALE par nom (le RAG voit déjà toutes les cibles) pour un
+        # comptage ciblé cohérent, même si la cible appartient à un autre utilisateur.
+        all_targets = db.query(Target).all()
+        explicit_names = [e.lstrip("#@") for e in _re.findall(r"[#@][\wÀ-ÿ]+", q_lower)]
+        question_words = set(_re.findall(r"[\wÀ-ÿ]{3,}", q_lower))
+        mentioned_targets = []
+        for t in all_targets:
+            tname = t.name.lower().lstrip("#@")
+            if tname and (tname in explicit_names or tname in question_words):
+                mentioned_targets.append(t)
+
+        user_targets = db.query(Target).filter(Target.user_id == user_id).all()
+
+        if "langue" in q_lower:
             query_type = "languages"
         elif "cible" in q_lower or "quelles" in q_lower or "quels sont" in q_lower:
             query_type = "targets"
@@ -146,30 +174,32 @@ async def assistant_chat(
         answer_parts = []
 
         if query_type == "targets":
-            targets = db.query(Target).filter(Target.user_id == user_id).all()
             total_tweets = 0
-            for t in targets:
+            for t in user_targets:
                 count = db.query(sqlfunc.count(Tweet.id)).filter(Tweet.target_id == t.id).scalar() or 0
                 analyzed = db.query(sqlfunc.count(Tweet.id)).filter(Tweet.target_id == t.id, Tweet.sentiment.isnot(None)).scalar() or 0
                 total_tweets += count
                 t_type = t.target_type.value if hasattr(t.target_type, 'value') else str(t.target_type)
                 answer_parts.append(f"• {t.name} ({t_type}) : {count} tweets ({analyzed} analysés)")
-            answer_parts.insert(0, f"📊 {len(targets)} cibles suivies, {total_tweets} tweets au total\n")
+            answer_parts.insert(0, f"📊 {len(user_targets)} cibles suivies, {total_tweets} tweets au total\n")
 
         elif query_type == "tweet_count":
-            target_ids = [t.id for t in db.query(Target).filter(Target.user_id == user_id).all()]
-            total = db.query(sqlfunc.count(Tweet.id)).filter(Tweet.target_id.in_(target_ids)).scalar() if target_ids else 0
-            analyzed = db.query(sqlfunc.count(Tweet.id)).filter(Tweet.target_id.in_(target_ids), Tweet.sentiment.isnot(None)).scalar() if target_ids else 0
-            pending = total - analyzed
-            answer_parts.append(f"📊 Total : {total} tweets")
-            answer_parts.append(f"   Analysés : {analyzed}")
-            if pending > 0:
-                answer_parts.append(f"   En attente : {pending}")
+            if mentioned_targets:
+                # Comptage ciblé (ex: "#bts nombre de tweets ?") — somme sur les cibles de ce nom
+                tids = [t.id for t in mentioned_targets]
+                name = mentioned_targets[0].name
+                total = db.query(sqlfunc.count(Tweet.id)).filter(Tweet.target_id.in_(tids)).scalar() or 0
+                analyzed = db.query(sqlfunc.count(Tweet.id)).filter(Tweet.target_id.in_(tids), Tweet.sentiment.isnot(None)).scalar() or 0
+                answer_parts.append(f"📊 {name} : {total} tweets ({analyzed} analysés, {total - analyzed} en attente)")
+            else:
+                target_ids = [t.id for t in user_targets]
+                total = db.query(sqlfunc.count(Tweet.id)).filter(Tweet.target_id.in_(target_ids)).scalar() if target_ids else 0
+                analyzed = db.query(sqlfunc.count(Tweet.id)).filter(Tweet.target_id.in_(target_ids), Tweet.sentiment.isnot(None)).scalar() if target_ids else 0
+                answer_parts.append(f"📊 Total : {total} tweets ({analyzed} analysés, {total - analyzed} en attente)")
 
         elif query_type == "anger_by_target":
-            targets = db.query(Target).filter(Target.user_id == user_id).all()
             answer_parts.append("📊 Cibles avec le plus de tweets négatifs (colère/tristesse/peur) :")
-            for t in targets:
+            for t in user_targets:
                 neg_count = db.query(sqlfunc.count(Tweet.id)).filter(
                     Tweet.target_id == t.id,
                     Tweet.sentiment.in_(["colere", "tristesse", "peur"])
@@ -179,8 +209,16 @@ async def assistant_chat(
             if len(answer_parts) == 1:
                 answer_parts.append("   Aucun tweet négatif trouvé.")
 
+        elif query_type == "languages":
+            answer_parts.append(
+                "La langue des tweets n'est pas encore enregistrée en base, je ne peux donc "
+                "pas faire de répartition par langue pour le moment."
+            )
         else:
-            answer_parts.append("Requête non reconnue.")
+            answer_parts.append(
+                "Je peux répondre à : le nombre de tweets (par cible ou global), la liste de vos "
+                "cibles, ou les cibles avec le plus de tweets négatifs."
+            )
 
         return {
             "mode": "database",
@@ -205,6 +243,10 @@ async def assistant_chat(
 
             # Après la collecte, indexer pour que le RAG puisse utiliser les données
             index_all_tweets(db)
+
+            from backend.app.services.notifications import notify
+            notify(db, user_id, "collect", "Collecte effectuée",
+                   f"Collecte et analyse terminées pour : {question[:80]}")
 
             return {
                 "mode": "agent",
@@ -297,6 +339,9 @@ async def assistant_chat(
             db.refresh(dashboard)
             dashboard_id = dashboard.id
             dashboard_url = f"/dashboards/generated/{dashboard.id}"
+            from backend.app.services.notifications import notify
+            notify(db, user_id, "pdf_export", "Dashboard généré",
+                   f"Un nouveau rapport IA a été créé : « {dashboard.title} ». Disponible dans Mes rapports IA.")
     except Exception as e:
         logger.debug(f"[ASSISTANT] Dashboard save failed (OK): {e}")
 

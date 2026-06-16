@@ -33,7 +33,7 @@ function formatExecutionLog(logs = []) {
 function SourcesList({ sources }) {
   if (!sources || !sources.length) return null;
   return (
-    <details style={{ marginTop: 12, color: '#71717a' }}>
+    <details style={{ marginTop: 12, color: '#64748b' }}>
       <summary style={{ cursor: 'pointer', fontSize: '0.75rem', display: 'flex', alignItems: 'center', gap: 4 }}>
         <ChevronDown size={12} /> {sources.length} source(s)
       </summary>
@@ -41,17 +41,17 @@ function SourcesList({ sources }) {
         {sources.slice(0, 5).map((s, i) => (
           <div key={i} style={{
             padding: '8px 10px',
-            background: '#09090b',
+            background: '#f1f5f9',
             borderRadius: 6,
             marginBottom: 4,
             fontSize: '0.73rem',
-            color: '#a1a1aa',
-            border: '1px solid #1c1c22',
+            color: '#475569',
+            border: '1px solid #e2e8f0',
           }}>
-            <span style={{ color: '#e4e4e7' }}>@{s.author}</span>
-            <span style={{ margin: '0 6px', color: '#3f3f46' }}>·</span>
+            <span style={{ color: '#1e293b' }}>@{s.author}</span>
+            <span style={{ margin: '0 6px', color: '#cbd5e1' }}>·</span>
             <span style={{ color: '#5271ff' }}>{s.sentiment}</span> ({(s.confidence * 100).toFixed(0)}%)
-            <div style={{ marginTop: 3, color: '#52525b', lineHeight: 1.4 }}>
+            <div style={{ marginTop: 3, color: '#94a3b8', lineHeight: 1.4 }}>
               {s.text?.slice(0, 120)}
             </div>
           </div>
@@ -101,9 +101,9 @@ function ExportPdfButton({ message }) {
       marginTop: 8,
       padding: '6px 10px',
       background: 'transparent',
-      border: '1px solid #27272a',
+      border: '1px solid #e2e8f0',
       borderRadius: 6,
-      color: '#71717a',
+      color: '#64748b',
       fontSize: '0.72rem',
       display: 'inline-flex',
       alignItems: 'center',
@@ -280,7 +280,7 @@ export default function Assistant() {
       <div style={{ marginBottom: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
         <div>
           <h1 style={{ marginBottom: 4, fontSize: '1.4rem' }}>Assistant IA</h1>
-          <p style={{ color: '#52525b', fontSize: '0.82rem' }}>
+          <p style={{ color: '#94a3b8', fontSize: '0.82rem' }}>
             RAG from scratch + Groq LLaMA 3
           </p>
         </div>
@@ -295,8 +295,8 @@ export default function Assistant() {
         overflowY: 'auto',
         borderRadius: 12,
         padding: 18,
-        background: '#0f0f12',
-        border: '1px solid #1c1c22',
+        background: '#ffffff',
+        border: '1px solid #e2e8f0',
         marginBottom: 14,
       }}>
         {messages.map((msg, i) => (
@@ -313,11 +313,11 @@ export default function Assistant() {
               padding: '14px 16px',
               borderRadius: msg.role === 'user' ? '14px 14px 4px 14px' : '14px 14px 14px 4px',
               whiteSpace: 'pre-line',
-              background: msg.role === 'user' ? '#5271ff' : '#18181b',
-              color: msg.role === 'user' ? 'white' : '#e4e4e7',
+              background: msg.role === 'user' ? '#5271ff' : '#f1f5f9',
+              color: msg.role === 'user' ? 'white' : '#1e293b',
               lineHeight: 1.55,
               fontSize: '0.88rem',
-              border: msg.role === 'user' ? 'none' : '1px solid #27272a',
+              border: msg.role === 'user' ? 'none' : '1px solid #e2e8f0',
             }}>
               {msg.content}
 
@@ -338,8 +338,8 @@ export default function Assistant() {
               {/* Meta info */}
               {msg.meta && (
                 <div style={{
-                  marginTop: 10, padding: '6px 10px', background: '#09090b',
-                  borderRadius: 5, fontSize: '0.72rem', color: '#52525b', border: '1px solid #1c1c22',
+                  marginTop: 10, padding: '6px 10px', background: '#f1f5f9',
+                  borderRadius: 5, fontSize: '0.72rem', color: '#94a3b8', border: '1px solid #e2e8f0',
                 }}>
                   {msg.mode && (
                     <span style={{
@@ -370,8 +370,8 @@ export default function Assistant() {
                       disabled={loading}
                       style={{
                         padding: '6px 10px', background: 'transparent',
-                        border: '1px solid #27272a', borderRadius: 6,
-                        color: '#71717a', fontSize: '0.72rem',
+                        border: '1px solid #e2e8f0', borderRadius: 6,
+                        color: '#64748b', fontSize: '0.72rem',
                         display: 'inline-flex', alignItems: 'center', gap: 4,
                         cursor: loading ? 'not-allowed' : 'pointer',
                       }}
@@ -402,11 +402,11 @@ export default function Assistant() {
 
               {/* Execution log */}
               {msg.executionLog && (
-                <details style={{ marginTop: 8, color: '#52525b' }}>
+                <details style={{ marginTop: 8, color: '#94a3b8' }}>
                   <summary style={{ cursor: 'pointer', fontSize: '0.72rem', display: 'flex', alignItems: 'center', gap: 4 }}>
                     <ChevronDown size={11} /> Actions
                   </summary>
-                  <pre style={{ fontSize: '0.7rem', marginTop: 4, whiteSpace: 'pre-wrap', color: '#3f3f46' }}>
+                  <pre style={{ fontSize: '0.7rem', marginTop: 4, whiteSpace: 'pre-wrap', color: '#cbd5e1' }}>
                     {msg.executionLog}
                   </pre>
                 </details>
@@ -414,11 +414,11 @@ export default function Assistant() {
 
               {/* Plan */}
               {msg.plan && (
-                <details style={{ marginTop: 6, color: '#52525b' }}>
+                <details style={{ marginTop: 6, color: '#94a3b8' }}>
                   <summary style={{ cursor: 'pointer', fontSize: '0.72rem', display: 'flex', alignItems: 'center', gap: 4 }}>
                     <ChevronDown size={11} /> Plan LLM
                   </summary>
-                  <pre style={{ fontSize: '0.68rem', marginTop: 4, color: '#3f3f46' }}>
+                  <pre style={{ fontSize: '0.68rem', marginTop: 4, color: '#cbd5e1' }}>
                     {JSON.stringify(msg.plan, null, 2)}
                   </pre>
                 </details>
@@ -428,7 +428,7 @@ export default function Assistant() {
         ))}
 
         {loading && (
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: '#52525b', marginTop: 8, fontSize: '0.84rem' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: '#94a3b8', marginTop: 8, fontSize: '0.84rem' }}>
             <Loader2 size={16} style={{ animation: 'spin 1s linear infinite' }} />
             Analyse en cours...
           </div>
@@ -446,12 +446,12 @@ export default function Assistant() {
           rows={2}
           style={{
             flex: 1, resize: 'none', borderRadius: 10, padding: '12px 14px',
-            background: '#0f0f12', color: '#fafafa', border: '1px solid #1c1c22',
+            background: '#ffffff', color: '#0f172a', border: '1px solid #e2e8f0',
             outline: 'none', fontSize: '0.88rem', lineHeight: 1.5,
             transition: 'border-color 0.15s',
           }}
           onFocus={(e) => e.target.style.borderColor = '#5271ff'}
-          onBlur={(e) => e.target.style.borderColor = '#1c1c22'}
+          onBlur={(e) => e.target.style.borderColor = '#e2e8f0'}
         />
         <button
           onClick={handleAsk}

@@ -67,6 +67,16 @@ async def rag_chat(
     Si enable_mcp=True et que la BDD n'a pas assez de résultats,
     le RAG va chercher en temps réel sur Twitter via le serveur MCP.
     """
+    from backend.app.services.moderation import check_question
+    try:
+        from backend.app.models.blocked_keyword import BlockedKeyword
+        _extra = [b.word for b in db.query(BlockedKeyword).all()]
+    except Exception:
+        _extra = []
+    allowed, reason, _cat = check_question(request.question, _extra)
+    if not allowed:
+        return {"answer": reason, "sources": [], "blocked": True, "from_scratch": True}
+
     result = await chat(db, request.question, request.target_id, enable_mcp=request.enable_mcp, user_id=current_user.id)
     return result
 

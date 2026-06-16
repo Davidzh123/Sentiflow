@@ -69,6 +69,14 @@ def create_ticket(
     db.add(ticket)
     db.commit()
     db.refresh(ticket)
+    from backend.app.services.notifications import notify
+    notify(db, current_user.id, "ticket", "Ticket envoyé",
+           f"Votre ticket « {ticket.subject} » a bien été transmis au support.")
+    # Notifier les administrateurs
+    for a in db.query(User).filter(User.is_admin == True).all():  # noqa: E712
+        if a.id != current_user.id:
+            notify(db, a.id, "ticket", "Nouveau ticket support",
+                   f"{current_user.username} a ouvert un ticket : « {ticket.subject} » ({ticket.category}).")
     return _serialize(ticket, current_user.username)
 
 
@@ -124,4 +132,7 @@ def respond_ticket(
     ticket.updated_at = datetime.utcnow()
     db.commit()
     db.refresh(ticket)
+    from backend.app.services.notifications import notify
+    notify(db, ticket.user_id, "ticket", "Réponse à votre ticket",
+           f"Le support a répondu à « {ticket.subject} ».")
     return _serialize(ticket)

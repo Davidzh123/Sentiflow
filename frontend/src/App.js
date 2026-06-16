@@ -14,11 +14,14 @@ import GeneratedDashboards from './pages/GeneratedDashboards';
 import GeneratedDashboardDetail from './pages/GeneratedDashboardDetail';
 import Pricing from './pages/Pricing';
 import Support from './pages/Support';
+import Profile from './pages/Profile';
+import Notifications from './pages/Notifications';
+import NotFound from './pages/NotFound';
 import './App.css';
 
 function PrivateRoute({ children }) {
   const { token, loading } = useAuth();
-  if (loading) return <div style={{ padding: 60, color: '#52525b', textAlign: 'center' }}>Chargement...</div>;
+  if (loading) return <div style={{ padding: 60, color: '#94a3b8', textAlign: 'center' }}>Chargement...</div>;
   return token ? children : <Navigate to="/login" />;
 }
 
@@ -38,8 +41,11 @@ function App() {
             <Route path="/assistant" element={<PrivateRoute><Assistant /></PrivateRoute>} />
             <Route path="/pricing" element={<PrivateRoute><Pricing /></PrivateRoute>} />
             <Route path="/support" element={<PrivateRoute><Support /></PrivateRoute>} />
+            <Route path="/profile" element={<PrivateRoute><Profile /></PrivateRoute>} />
+            <Route path="/notifications" element={<PrivateRoute><Notifications /></PrivateRoute>} />
             <Route path="/dashboards/generated" element={<PrivateRoute><GeneratedDashboards /></PrivateRoute>} />
             <Route path="/dashboards/generated/:id" element={<PrivateRoute><GeneratedDashboardDetail /></PrivateRoute>} />
+            <Route path="*" element={<NotFound />} />
           </Routes>
         </Layout>
       </AuthProvider>

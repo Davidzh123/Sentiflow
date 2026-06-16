@@ -1631,6 +1631,14 @@ async def chat(
     explicit_targets = _re.findall(r"[#@][A-Za-z0-9_À-ÿ-]+", question)
     explicit_targets = [t.lower() for t in explicit_targets]
 
+    # "hashtag X" / "compte X" / "compte @X" écrits sans symbole -> on les traite comme cibles
+    for m in _re.findall(r"hashtag\s+#?([A-Za-z0-9_À-ÿ-]{2,})", question, flags=_re.IGNORECASE):
+        explicit_targets.append("#" + m.lower())
+    for m in _re.findall(r"\b(?:compte|account)\s+@?([A-Za-z0-9_À-ÿ-]{2,})", question, flags=_re.IGNORECASE):
+        explicit_targets.append("@" + m.lower())
+    # dédoublonnage en gardant l'ordre
+    explicit_targets = list(dict.fromkeys(explicit_targets))
+
     # Si pas de # ou @ explicite, chercher les mots qui matchent des cibles en BDD
     if not explicit_targets and db:
         try:

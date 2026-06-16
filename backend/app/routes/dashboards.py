@@ -180,6 +180,10 @@ def export_dashboard_pdf(
     if pdf_bytes is None:
         raise HTTPException(status_code=500, detail="Generation PDF indisponible (fpdf2 non installe)")
 
+    from backend.app.services.notifications import notify
+    notify(db, current_user.id, "pdf_export", "Export PDF",
+           f"Le rapport « {dashboard.title} » a été exporté en PDF.")
+
     filename = f"rapport_dashboard_{dashboard.id}.pdf"
     return Response(
         content=bytes(pdf_bytes),

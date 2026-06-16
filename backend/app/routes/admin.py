@@ -214,6 +214,7 @@ class RetrainRequest(BaseModel):
 @router.post("/pipeline/retrain")
 def trigger_retrain(
     request: RetrainRequest,
+    db: Session = Depends(get_db),
     current_user: User = Depends(require_admin),
 ):
     """Lance le ré-entraînement du TinyGPT planner manuellement."""
@@ -233,6 +234,10 @@ def trigger_retrain(
 
     thread = threading.Thread(target=run_in_background, daemon=True)
     thread.start()
+
+    from backend.app.services.notifications import notify
+    notify(db, current_user.id, "training", "Entraînement lancé",
+           f"Ré-entraînement du modèle démarré ({request.epochs} epochs). Fichier : scripts/auto_retrain_pipeline.py")
 
     return {
         "message": "Pipeline de ré-entraînement lancée en arrière-plan",
@@ -719,3 +724,92 @@ def admin_get_all_targets(
         }
         for t, username in targets
     ]
+
+
+# ============================================
+# SÉCURISATION / MODÉRATION DU RAG
+# ============================================
+
+class BlockedWordRequest(BaseModel):
+    word: str = Field(..., min_length=2, max_length=200)
+    category: str = Field(default="custom")
+
+
+@router.get("/moderation")
+def get_moderation(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin),
+):
+    """Affiche les catégories bloquées de base + les mots personnalisés."""
+    from backend.app.services.moderation import get_base_categories
+    from backend.app.models.blocked_keyword import BlockedKeyword
+
+    custom = db.query(BlockedKeyword).order_by(BlockedKeyword.id.desc()).all()
+    return {
+        "base_categories": get_base_categories(),
+        "custom_words": [
+            {"id": b.id, "word": b.word, "category": b.category, "created_at": str(b.created_at) if b.created_at else None}
+            for b in custom
+        ],
+    }
+
+
+@router.post("/moderation")
+def add_blocked_word(
+    request: BlockedWordRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin),
+):
+    """Ajoute un mot/thème bloqué personnalisé."""
+    from backend.app.models.blocked_keyword import BlockedKeyword
+    word = request.word.strip().lower()
+    existing = db.query(BlockedKeyword).filter(BlockedKeyword.word == word).first()
+    if existing:
+        raise HTTPException(status_code=400, detail="Ce mot est déjà bloqué.")
+    b = BlockedKeyword(word=word, category=request.category or "custom")
+    db.add(b)
+    db.commit()
+    db.refresh(b)
+    return {"id": b.id, "word": b.word, "category": b.category}
+
+
+@router.delete("/moderation/{word_id}")
+def delete_blocked_word(
+    word_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin),
+):
+    """Supprime un mot bloqué personnalisé."""
+    from backend.app.models.blocked_keyword import BlockedKeyword
+    b = db.query(BlockedKeyword).filter(BlockedKeyword.id == word_id).first()
+    if not b:
+        raise HTTPException(status_code=404, detail="Mot introuvable")
+    db.delete(b)
+    db.commit()
+    return {"deleted": word_id}
+
+
+@router.put("/moderation/{word_id}")
+def update_blocked_word(
+    word_id: int,
+    request: BlockedWordRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin),
+):
+    """Modifie un mot/thème bloqué personnalisé."""
+    from backend.app.models.blocked_keyword import BlockedKeyword
+    b = db.query(BlockedKeyword).filter(BlockedKeyword.id == word_id).first()
+    if not b:
+        raise HTTPException(status_code=404, detail="Mot introuvable")
+    new_word = request.word.strip().lower()
+    dup = db.query(BlockedKeyword).filter(
+        BlockedKeyword.word == new_word, BlockedKeyword.id != word_id
+    ).first()
+    if dup:
+        raise HTTPException(status_code=400, detail="Ce mot est déjà bloqué.")
+    b.word = new_word
+    if request.category:
+        b.category = request.category
+    db.commit()
+    db.refresh(b)
+    return {"id": b.id, "word": b.word, "category": b.category}

@@ -257,3 +257,63 @@ def generate_report_pdf(
     pdf.cell(0, 5, "SentiFlow - Rapport genere automatiquement", ln=True, align="C")
 
     return pdf.output()
+
+
+def generate_invoice_pdf(
+    number: str,
+    username: str,
+    email: str,
+    plan: str,
+    amount: float,
+    period: str,
+    created_at: str,
+) -> Optional[bytes]:
+    """Génère une facture PDF simple."""
+    if not FPDF_AVAILABLE:
+        return None
+
+    pdf = FPDF()
+    pdf.set_auto_page_break(auto=True, margin=15)
+    pdf.add_page()
+
+    pdf.set_font("Helvetica", "B", 22)
+    pdf.cell(0, 14, "SentiFlow", ln=True)
+    pdf.set_font("Helvetica", "", 10)
+    pdf.set_text_color(120, 120, 120)
+    pdf.cell(0, 6, "Facture", ln=True)
+    pdf.set_text_color(0, 0, 0)
+    pdf.ln(6)
+
+    pdf.set_font("Helvetica", "B", 11)
+    pdf.cell(0, 7, f"Facture n. {_safe_text(number)}", ln=True)
+    pdf.set_font("Helvetica", "", 10)
+    pdf.cell(0, 6, f"Date : {_safe_text(created_at[:16])}", ln=True)
+    pdf.ln(4)
+
+    pdf.set_font("Helvetica", "B", 10)
+    pdf.cell(0, 6, "Client", ln=True)
+    pdf.set_font("Helvetica", "", 10)
+    pdf.cell(0, 5, _safe_text(username), ln=True)
+    pdf.cell(0, 5, _safe_text(email), ln=True)
+    pdf.ln(6)
+
+    # Tableau ligne
+    pdf.set_font("Helvetica", "B", 10)
+    pdf.set_fill_color(240, 240, 240)
+    pdf.cell(120, 8, "Description", border=1, fill=True)
+    pdf.cell(0, 8, "Montant", border=1, fill=True, ln=True)
+    pdf.set_font("Helvetica", "", 10)
+    pdf.cell(120, 8, _safe_text(f"Abonnement {plan} ({period})"), border=1)
+    pdf.cell(0, 8, f"{amount:.2f} EUR", border=1, ln=True)
+
+    pdf.set_font("Helvetica", "B", 11)
+    pdf.cell(120, 9, "Total paye", border=1)
+    pdf.cell(0, 9, f"{amount:.2f} EUR", border=1, ln=True)
+
+    pdf.ln(8)
+    pdf.set_font("Helvetica", "I", 9)
+    pdf.set_text_color(120, 120, 120)
+    pdf.multi_cell(0, 5, "Paiement simule - environnement de demonstration. Merci de votre confiance.")
+    pdf.set_text_color(0, 0, 0)
+
+    return pdf.output()

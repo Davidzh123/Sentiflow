@@ -8,8 +8,8 @@
 
 body {
   font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
-  background: #09090b;
-  color: #fafafa;
+  background: #f1f5f9;
+  color: #0f172a;
   line-height: 1.6;
   -webkit-font-smoothing: antialiased;
 }
@@ -42,8 +42,8 @@ select, input, textarea {
 
 ::-webkit-scrollbar { width: 6px; }
 ::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: #27272a; border-radius: 3px; }
-::-webkit-scrollbar-thumb:hover { background: #3f3f46; }
+::-webkit-scrollbar-thumb { background: #e2e8f0; border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: #cbd5e1; }
 
 .btn-primary {
   padding: 10px 20px;
@@ -66,8 +66,8 @@ select, input, textarea {
 .btn-secondary {
   padding: 10px 20px;
   background: transparent;
-  color: #e4e4e7;
-  border: 1px solid #27272a;
+  color: #1e293b;
+  border: 1px solid #e2e8f0;
   border-radius: 8px;
   font-weight: 500;
   font-size: 0.88rem;
@@ -82,15 +82,15 @@ select, input, textarea {
 }
 
 .card {
-  background: #0f0f12;
-  border: 1px solid #1c1c22;
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
   border-radius: 12px;
   padding: 24px;
   transition: border-color 0.2s, transform 0.2s;
 }
 
 .card:hover {
-  border-color: #27272a;
+  border-color: #e2e8f0;
 }
 
 @keyframes fadeIn {

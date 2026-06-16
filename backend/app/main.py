@@ -21,6 +21,8 @@ from backend.app.routes.rag import router as rag_router
 from backend.app.routes.assistant import router as assistant_router
 from backend.app.routes.analytics import router as analytics_router
 from backend.app.routes.tickets import router as tickets_router
+from backend.app.routes.notifications import router as notifications_router
+from backend.app.routes.billing import router as billing_router
 
 # Configuration du logging global
 logging.basicConfig(
@@ -80,6 +82,8 @@ app.include_router(rag_router)
 app.include_router(assistant_router)
 app.include_router(analytics_router)
 app.include_router(tickets_router)
+app.include_router(notifications_router)
+app.include_router(billing_router)
 
 
 @app.get("/health")

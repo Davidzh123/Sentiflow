@@ -8,14 +8,6 @@ const TEAM = [
   { name: "Rym Fouzari", role: "Data / Analyse", desc: "Pipeline de donnees, analyses statistiques, dashboards analytiques" },
 ];
 
-const TECH_STACK = [
-  { category: "Backend", items: ["FastAPI", "PostgreSQL", "Redis", "Celery", "Kafka"] },
-  { category: "IA / ML", items: ["PyTorch (TinyGPT)", "Groq LLaMA 3", "CamemBERT fine-tune"] },
-  { category: "RAG", items: ["TF-IDF from scratch", "BM25 Okapi", "RRF", "Query Expansion"] },
-  { category: "Frontend", items: ["React 19", "Recharts", "Lucide Icons"] },
-  { category: "Infra", items: ["Docker", "MLflow", "MCP Twitter"] },
-];
-
 const PIPELINE_STEPS = [
   { icon: <MessageSquare size={20} />, title: "1. Question utilisateur", desc: "L'utilisateur pose une question en langage naturel sur les sentiments Twitter." },
   { icon: <Cpu size={20} />, title: "2. Planner LLM (TinyGPT)", desc: "Un Transformer decoder-only comprend l'intention, extrait les cibles et produit un plan JSON." },
@@ -31,7 +23,7 @@ export default function About() {
       {/* Hero */}
       <div style={{ textAlign: 'center', paddingTop: 20, marginBottom: 48 }}>
         <h1 style={{ fontSize: '2rem', marginBottom: 12 }}>A propos de SentiFlow</h1>
-        <p style={{ color: '#71717a', fontSize: '1rem', maxWidth: 600, margin: '0 auto' }}>
+        <p style={{ color: '#64748b', fontSize: '1rem', maxWidth: 600, margin: '0 auto' }}>
           Plateforme d'analyse de sentiments Twitter construite from scratch. 
           RAG maison, LLM specialise, generation via Groq — le tout sans dependance externe pour le retrieval.
         </p>
@@ -46,46 +38,59 @@ export default function About() {
               <div style={{ color: '#5271ff', marginTop: 2 }}>{step.icon}</div>
               <div>
                 <h4 style={{ marginBottom: 4, fontSize: '0.92rem' }}>{step.title}</h4>
-                <p style={{ color: '#71717a', fontSize: '0.84rem' }}>{step.desc}</p>
+                <p style={{ color: '#64748b', fontSize: '0.84rem' }}>{step.desc}</p>
               </div>
             </div>
           ))}
         </div>
       </section>
 
-      {/* Tech Stack */}
+      {/* Qui sommes-nous */}
       <section style={{ marginBottom: 56 }}>
-        <h2 style={{ marginBottom: 24, fontSize: '1.3rem' }}>Stack technique</h2>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 14 }}>
-          {TECH_STACK.map((group, i) => (
-            <div key={i} className="card">
-              <h4 style={{ color: '#5271ff', fontSize: '0.8rem', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 10 }}>
-                {group.category}
-              </h4>
-              <ul style={{ listStyle: 'none', padding: 0 }}>
-                {group.items.map((item, j) => (
-                  <li key={j} style={{ color: '#a1a1aa', fontSize: '0.82rem', marginBottom: 4 }}>
-                    {item}
-                  </li>
-                ))}
-              </ul>
-            </div>
-          ))}
+        <h2 style={{ marginBottom: 24, fontSize: '1.3rem' }}>Qui sommes-nous</h2>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 14 }}>
+          <div className="card">
+            <h4 style={{ color: '#5271ff', marginBottom: 8 }}>Qui sommes-nous ?</h4>
+            <p style={{ color: '#475569', fontSize: '0.86rem', lineHeight: 1.7 }}>
+              Une équipe passionnée par l'IA et la donnée. Nous avons conçu SentiFlow pour rendre
+              l'analyse d'opinion en ligne accessible, sans jargon technique.
+            </p>
+          </div>
+          <div className="card">
+            <h4 style={{ color: '#5271ff', marginBottom: 8 }}>Pourquoi SentiFlow ?</h4>
+            <p style={{ color: '#475569', fontSize: '0.86rem', lineHeight: 1.7 }}>
+              Comprendre ce que les gens pensent d'une marque, d'un sujet ou d'un événement prend
+              un temps fou manuellement. SentiFlow automatise la collecte et l'analyse pour livrer
+              des insights clairs en quelques secondes.
+            </p>
+          </div>
+          <div className="card">
+            <h4 style={{ color: '#5271ff', marginBottom: 8 }}>Notre objectif</h4>
+            <p style={{ color: '#475569', fontSize: '0.86rem', lineHeight: 1.7 }}>
+              Donner à chaque analyste marketing, RH ou BI une lecture fiable et visuelle de
+              l'opinion publique — corrélations, tendances et alertes — pour décider plus vite et mieux.
+            </p>
+          </div>
         </div>
       </section>
 
-      {/* From scratch */}
+      {/* Fonctionnalités clés */}
       <section style={{ marginBottom: 56 }}>
-        <h2 style={{ marginBottom: 16, fontSize: '1.3rem' }}>Pourquoi "From Scratch" ?</h2>
-        <div className="card">
-          <p style={{ color: '#a1a1aa', lineHeight: 1.8, fontSize: '0.9rem' }}>
-            Le coeur du RAG (retrieval) est entierement code a la main : tokenizer, stemmer francais, 
-            TF-IDF vectorizer, BM25, similarite cosinus, index vectoriel, re-ranking. 
-            Aucune librairie type LangChain, FAISS, ou sentence-transformers n'est utilisee.
-            <br /><br />
-            Seules dependances : <strong>NumPy</strong> (calcul matriciel) et <strong>Groq API</strong> (generation finale).
-            Le planner (TinyGPT) est un vrai Transformer PyTorch entraine sur nos donnees synthetiques + utilisateurs.
-          </p>
+        <h2 style={{ marginBottom: 24, fontSize: '1.3rem' }}>Fonctionnalités clés</h2>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 14 }}>
+          {[
+            { t: "Analyse en temps réel", d: "Collecte automatique des tweets et détection du sentiment (joie, colère, peur…) sur chaque sujet suivi." },
+            { t: "Assistant IA", d: "Posez vos questions en langage naturel : l'assistant cherche, analyse et résume l'opinion pour vous." },
+            { t: "Dashboard analytique", d: "KPIs, tendances, comparaisons, corrélations et carte des sujets — pensé pour les analystes marketing, RH et BI." },
+            { t: "Alertes", d: "Soyez prévenu quand un sentiment dépasse un seuil sur une cible (e-réputation, gestion de crise)." },
+            { t: "Rapports exportables", d: "Chaque analyse génère un rapport téléchargeable en PDF, prêt à partager." },
+            { t: "Multi-utilisateurs & offres", d: "Comptes, abonnements et quotas adaptés à chaque profil d'utilisation." },
+          ].map((f, i) => (
+            <div key={i} className="card">
+              <h4 style={{ color: '#5271ff', marginBottom: 8, fontSize: '0.95rem' }}>{f.t}</h4>
+              <p style={{ color: '#475569', fontSize: '0.84rem', lineHeight: 1.6 }}>{f.d}</p>
+            </div>
+          ))}
         </div>
       </section>
 
@@ -100,7 +105,7 @@ export default function About() {
               </div>
               <h4 style={{ marginBottom: 4 }}>{member.name}</h4>
               <p style={{ color: '#5271ff', fontSize: '0.78rem', marginBottom: 8 }}>{member.role}</p>
-              <p style={{ color: '#71717a', fontSize: '0.8rem' }}>{member.desc}</p>
+              <p style={{ color: '#64748b', fontSize: '0.8rem' }}>{member.desc}</p>
             </div>
           ))}
         </div>
