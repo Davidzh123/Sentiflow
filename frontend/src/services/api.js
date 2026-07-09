@@ -128,6 +128,16 @@ export const ragEvaluate = (data) =>
 export const assistantChat = (data) =>
   api.post('/assistant/chat', data, { timeout: 240000 });
 
+// Modèles de génération disponibles (sélecteur LLM)
+export const getModels = () => api.get('/assistant/models');
+
+// Historique des conversations
+export const getConversations = () => api.get('/conversations');
+export const createConversation = (title) => api.post('/conversations', { title });
+export const getConversation = (id) => api.get(`/conversations/${id}`);
+export const renameConversation = (id, title) => api.patch(`/conversations/${id}`, { title });
+export const deleteConversation = (id) => api.delete(`/conversations/${id}`);
+
 // Abonnement / Plan
 export const getMyPlan = () => api.get('/auth/plan');
 

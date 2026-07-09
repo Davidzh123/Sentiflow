@@ -57,6 +57,24 @@ class AssistantRequest(BaseModel):
         default=None,
         description="Forcer un mode: 'agent' ou 'rag'. Si None, le planner décide."
     )
+    model: Optional[str] = Field(default="auto", description="Modèle de génération (auto, llama-3.1-8b-instant, tinygpt, fallback...)")
+    conversation_id: Optional[int] = Field(default=None, description="Conversation à laquelle rattacher l'échange")
+
+
+def _save_conv(db, user_id, conversation_id, question, answer, meta):
+    """Enregistre l'échange dans l'historique (best-effort). Retourne l'id de conversation."""
+    try:
+        from backend.app.routes.conversations import save_exchange
+        return save_exchange(db, user_id, conversation_id, question, answer, meta)
+    except Exception:
+        return conversation_id
+
+
+@router.get("/models")
+def list_models():
+    """Liste des modèles de génération disponibles (pour le sélecteur)."""
+    from backend.app.services.rag import AVAILABLE_MODELS
+    return {"models": AVAILABLE_MODELS}
 
 
 @router.post("/chat")
@@ -220,10 +238,13 @@ async def assistant_chat(
                 "cibles, ou les cibles avec le plus de tweets négatifs."
             )
 
+        _db_answer = "\n".join(answer_parts)
+        _conv_id = _save_conv(db, user_id, request.conversation_id, question, _db_answer, {"mode": "database"})
         return {
             "mode": "database",
-            "answer": "\n".join(answer_parts),
+            "answer": _db_answer,
             "plan": plan,
+            "conversation_id": _conv_id,
         }
 
     # ============================================
@@ -248,6 +269,8 @@ async def assistant_chat(
             notify(db, user_id, "collect", "Collecte effectuée",
                    f"Collecte et analyse terminées pour : {question[:80]}")
 
+            _conv_id = _save_conv(db, user_id, request.conversation_id, question, result.get("answer", ""),
+                                  {"mode": "agent", "dashboard_url": result.get("dashboard_url")})
             return {
                 "mode": "agent",
                 "answer": result.get("answer", ""),
@@ -257,6 +280,7 @@ async def assistant_chat(
                 "plan": result.get("plan"),
                 "model_info": result.get("model_info"),
                 "targets": result.get("targets", []),
+                "conversation_id": _conv_id,
             }
         except Exception as e:
             # Si l'agent échoue, fallback sur le RAG
@@ -271,6 +295,7 @@ async def assistant_chat(
         target_id=None,
         enable_mcp=request.enable_mcp,
         user_id=user_id,
+        model=request.model,
     )
 
     # Si pas assez de résultats et qu'on a des cibles identifiées → basculer en mode Agent
@@ -288,6 +313,8 @@ async def assistant_chat(
                 allow_auto_analyze=True,
             )
             index_all_tweets(db)
+            _conv_id = _save_conv(db, user_id, request.conversation_id, question, agent_result.get("answer", ""),
+                                  {"mode": "agent", "dashboard_url": agent_result.get("dashboard_url")})
             return {
                 "mode": "agent",
                 "answer": agent_result.get("answer", ""),
@@ -298,6 +325,7 @@ async def assistant_chat(
                 "model_info": agent_result.get("model_info"),
                 "sources": [],
                 "total_retrieved": 0,
+                "conversation_id": _conv_id,
             }
         except Exception as e:
             logger.warning(f"[ASSISTANT] Bascule Agent échouée: {e}")
@@ -364,6 +392,9 @@ async def assistant_chat(
     except Exception as e:
         logger.debug(f"[ASSISTANT] Log question échoué (table pas créée?): {e}")
 
+    _conv_id = _save_conv(db, user_id, request.conversation_id, question, result.get("answer", ""),
+                          {"mode": "rag", "dashboard_url": dashboard_url, "generator": result.get("generator")})
+
     return {
         "mode": "rag",
         "answer": result.get("answer", ""),
@@ -375,6 +406,7 @@ async def assistant_chat(
         "metrics": result.get("metrics"),
         "dashboard_id": dashboard_id,
         "dashboard_url": dashboard_url,
+        "conversation_id": _conv_id,
     }
 
 

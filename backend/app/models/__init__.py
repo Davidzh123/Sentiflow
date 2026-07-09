@@ -57,6 +57,12 @@ try:
 except ImportError:
     BlockedKeyword = None
 
+try:
+    from backend.app.models.conversation import Conversation, ConversationMessage
+except ImportError:
+    Conversation = None
+    ConversationMessage = None
+
 __all__ = [
     "User", "Target", "Tweet", "Alert",
     "Account", "SentimentAggregate",
@@ -64,4 +70,5 @@ __all__ = [
     "GeneratedDashboard", "LLMFeedback",
     "TweetEmbedding", "PredictionLog", "DriftLog",
     "QuestionLog", "Ticket", "Notification", "Invoice", "BlockedKeyword",
+    "Conversation", "ConversationMessage",
 ]

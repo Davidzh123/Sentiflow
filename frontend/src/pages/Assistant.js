@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { assistantChat } from '../services/api';
-import { Send, Loader2, ExternalLink, ChevronDown, Download, FileText, RefreshCw } from 'lucide-react';
+import { assistantChat, getConversations, getConversation, deleteConversation } from '../services/api';
+import { Send, Loader2, ExternalLink, ChevronDown, Download, FileText, RefreshCw, Plus, Trash2, MessageSquare } from 'lucide-react';
 import api from '../services/api';
 
 function formatMeta(data) {
@@ -116,33 +116,70 @@ function ExportPdfButton({ message }) {
   );
 }
 
+const WELCOME = {
+  role: 'assistant',
+  content:
+    "Bienvenue sur l'assistant SentiFlow.\n\nJe fonctionne en 3 modes selon ta question :\n\n" +
+    "MODE AGENT (collecte + analyse + dashboard) :\n" +
+    "• \"Recupere les tweets de #bts\"\n" +
+    "• \"Cree la cible @elonmusk et analyse\"\n\n" +
+    "MODE RAG (recherche dans les tweets existants) :\n" +
+    "• \"Quel est le sentiment sur #france ?\"\n" +
+    "• \"Compare les sentiments de #psg et #om\"\n\n" +
+    "MODE BDD (stats directes) :\n" +
+    "• \"Combien de tweets en base ?\"\n" +
+    "• \"Quelles sont mes cibles ?\"",
+};
+
 export default function Assistant() {
-  const [messages, setMessages] = useState([
-    {
-      role: 'assistant',
-      content:
-        "Bienvenue sur l'assistant SentiFlow.\n\nJe fonctionne en 3 modes selon ta question :\n\n" +
-        "MODE AGENT (collecte + analyse + dashboard) :\n" +
-        "• \"Recupere les tweets de #bts\"\n" +
-        "• \"Cree la cible @elonmusk et analyse\"\n" +
-        "• \"Collecte #minecraft et compare avec #fortnite\"\n\n" +
-        "MODE RAG (recherche dans les tweets existants) :\n" +
-        "• \"Quel est le sentiment sur #france ?\"\n" +
-        "• \"Pourquoi les gens sont en colere sur #politique ?\"\n" +
-        "• \"Compare les sentiments de #psg et #om\"\n\n" +
-        "MODE BDD (stats directes) :\n" +
-        "• \"Combien de tweets en base ?\"\n" +
-        "• \"Quelles sont mes cibles ?\"\n" +
-        "• \"Repartition des langues\"",
-    },
-  ]);
+  const [messages, setMessages] = useState([WELCOME]);
   const [question, setQuestion] = useState('');
   const [loading, setLoading] = useState(false);
+  const [forceMode, setForceMode] = useState('auto');
+  const [conversationId, setConversationId] = useState(null);
+  const [conversations, setConversations] = useState([]);
   const bottomRef = useRef(null);
+
+  const refreshConversations = () =>
+    getConversations().then((r) => setConversations(r.data || [])).catch(() => {});
+
+  useEffect(() => {
+    refreshConversations();
+  }, []);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, loading]);
+
+  const newConversation = () => {
+    setConversationId(null);
+    setMessages([WELCOME]);
+  };
+
+  const loadConversation = async (id) => {
+    if (!id) return;
+    try {
+      const r = await getConversation(id);
+      const msgs = (r.data.messages || []).map((m) => ({
+        role: m.role,
+        content: m.content,
+        mode: m.meta?.mode,
+        meta: m.meta?.mode ? m.meta.mode.toUpperCase() : undefined,
+        dashboardUrl: m.meta?.dashboard_url,
+      }));
+      setMessages(msgs.length ? msgs : [WELCOME]);
+      setConversationId(id);
+    } catch { /* ignore */ }
+  };
+
+  const removeConversation = async (id) => {
+    if (!window.confirm('Supprimer cette conversation ?')) return;
+    try {
+      await deleteConversation(id);
+      if (id === conversationId) newConversation();
+      refreshConversations();
+    } catch { /* ignore */ }
+  };
 
   const handleAsk = async () => {
     const q = question.trim();
@@ -153,8 +190,14 @@ export default function Assistant() {
     setLoading(true);
 
     try {
-      const response = await assistantChat({ question: q, enable_mcp: true });
+      const response = await assistantChat({
+        question: q,
+        enable_mcp: true,
+        force_mode: forceMode === 'auto' ? undefined : forceMode,
+        conversation_id: conversationId,
+      });
       const data = response.data;
+      if (data.conversation_id) { setConversationId(data.conversation_id); refreshConversations(); }
 
       // Détecter si la réponse indique pas assez de données
       const answer = data.answer || "Pas de reponse disponible.";
@@ -277,16 +320,55 @@ export default function Assistant() {
   return (
     <div className="animate-in" style={{ maxWidth: 880, margin: '0 auto', height: 'calc(100vh - 72px)', display: 'flex', flexDirection: 'column' }}>
       {/* Header */}
-      <div style={{ marginBottom: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+      <div style={{ marginBottom: 10, display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
         <div>
           <h1 style={{ marginBottom: 4, fontSize: '1.4rem' }}>Assistant IA</h1>
           <p style={{ color: '#94a3b8', fontSize: '0.82rem' }}>
-            RAG from scratch + Groq LLaMA 3
+            RAG from scratch — modèle de génération au choix
           </p>
         </div>
         <Link to="/dashboards/generated" style={{ fontSize: '0.8rem', color: '#5271ff', display: 'flex', alignItems: 'center', gap: 4 }}>
           Mes rapports IA <ExternalLink size={12} />
         </Link>
+      </div>
+
+      {/* Barre de contrôle : nouveau chat, historique, modèle */}
+      <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 12, flexWrap: 'wrap' }}>
+        <button onClick={newConversation} style={{
+          display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 12px',
+          background: '#5271ff', color: '#fff', border: 'none', borderRadius: 8, fontSize: '0.8rem', cursor: 'pointer',
+        }}>
+          <Plus size={14} /> Nouveau chat
+        </button>
+
+        <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+          <MessageSquare size={14} color="#94a3b8" />
+          <select value={conversationId || ''} onChange={(e) => loadConversation(Number(e.target.value))}
+            style={{ padding: '7px 10px', borderRadius: 8, border: '1px solid #e2e8f0', background: '#fff', color: '#0f172a', fontSize: '0.8rem', maxWidth: 220 }}>
+            <option value="">— Historique ({conversations.length}) —</option>
+            {conversations.map((c) => (
+              <option key={c.id} value={c.id}>{c.title}</option>
+            ))}
+          </select>
+          {conversationId && (
+            <button onClick={() => removeConversation(conversationId)} title="Supprimer cette conversation"
+              style={{ background: 'none', border: '1px solid #e2e8f0', borderRadius: 8, padding: '6px 8px', color: '#dc2626', cursor: 'pointer' }}>
+              <Trash2 size={14} />
+            </button>
+          )}
+        </div>
+
+        <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, marginLeft: 'auto' }}>
+          <span style={{ fontSize: '0.78rem', color: '#64748b' }}>Mode :</span>
+          <select value={forceMode} onChange={(e) => setForceMode(e.target.value)}
+            title="Forcer le comportement de l'assistant"
+            style={{ padding: '7px 10px', borderRadius: 8, border: '1px solid #e2e8f0', background: '#fff', color: '#0f172a', fontSize: '0.8rem' }}>
+            <option value="auto">Auto (l'IA décide)</option>
+            <option value="rag">RAG — chercher & répondre</option>
+            <option value="agent">Agent — collecter & analyser</option>
+            <option value="database">BDD — stats directes</option>
+          </select>
+        </div>
       </div>
 
       {/* Messages */}

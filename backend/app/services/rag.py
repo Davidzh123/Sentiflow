@@ -1297,41 +1297,29 @@ def _is_usable_tinygpt_answer(answer: str) -> bool:
     readable_ratio = letters / max(1, len(cleaned))
     return readable_ratio >= 0.45
 
-def generate_answer_from_scratch(
-    question: str,
-    tweets: List[Dict[str, Any]],
-    prompt: str,
-) -> str:
-    """
-    Génère une réponse en utilisant (par ordre de priorité) :
-    1. Groq API (LLaMA 3 — réponses naturelles style ChatGPT)
-    2. TinyGPT from scratch (si checkpoint disponible)
-    3. Fallback déterministe intelligent
+# Modèles de génération disponibles (exposés au front pour le sélecteur)
+GROQ_MODELS = {
+    "llama-3.1-8b-instant",
+    "llama-3.3-70b-versatile",
+    "gemma2-9b-it",
+}
 
-    Le retrieval reste 100% from scratch. Seule la génération utilise un LLM externe
-    quand disponible pour améliorer la qualité des réponses.
-    """
-    # 1. Tenter Groq (réponses les plus naturelles)
-    groq_key = settings.groq_api_key
-    if groq_key and tweets:
-        try:
-            answer = _generate_with_groq(prompt, groq_key)
-            if answer and len(answer) > 30:
-                logger.info(f"[RAG] Réponse générée par Groq ({len(answer)} chars)")
-                return answer
-        except Exception as e:
-            logger.warning(f"[RAG] Groq indisponible: {e}")
+AVAILABLE_MODELS = [
+    {"id": "auto", "label": "Auto (recommandé)", "desc": "Meilleur LLM disponible", "from_scratch": False},
+    {"id": "groq", "label": "IA — Groq (LLaMA 3)", "desc": "Génération naturelle par LLM externe", "from_scratch": False},
+    {"id": "tinygpt", "label": "TinyGPT (maison, from scratch)", "desc": "Notre modèle codé à la main", "from_scratch": True},
+    {"id": "fallback", "label": "Déterministe (sans IA)", "desc": "Synthèse par règles", "from_scratch": True},
+]
 
-    # 2. Tenter TinyGPT from scratch
+
+def _generate_with_tinygpt(prompt: str) -> Optional[str]:
     try:
         from backend.app.services.llm_from_scratch import get_planner
         planner = get_planner()
-
         if planner.loaded_checkpoint and planner.model is not None:
             import torch
             ids = planner.tokenizer.encode(prompt[:400], add_bos=True)
             idx = torch.tensor([ids], dtype=torch.long)
-
             with torch.no_grad():
                 for _ in range(300):
                     idx_cond = idx[:, -planner.model.block_size:]
@@ -1342,22 +1330,61 @@ def generate_answer_from_scratch(
                     idx = torch.cat([idx, next_id], dim=1)
                     if int(next_id.item()) == planner.tokenizer.eos_id:
                         break
-
             decoded = planner.tokenizer.decode(idx[0].tolist())
             generated = decoded[len(prompt[:400]):]
-
             if _is_usable_tinygpt_answer(generated):
-                logger.info(f"[RAG] Réponse générée par TinyGPT ({len(generated)} chars)")
                 return generated.strip()
-            logger.warning("[RAG] Sortie TinyGPT rejetée: réponse non lisible ou JSON de planner")
     except Exception as e:
         logger.warning(f"[RAG] TinyGPT indisponible: {e}")
-
-    # 3. Fallback déterministe
-    return _generate_fallback_answer(question, tweets)
+    return None
 
 
-def _generate_with_groq(prompt: str, api_key: str) -> str:
+def generate_answer_from_scratch(
+    question: str,
+    tweets: List[Dict[str, Any]],
+    prompt: str,
+    model: str = "auto",
+) -> str:
+    """
+    Génère une réponse selon le modèle choisi par l'utilisateur :
+    - "auto"      : Groq (défaut) -> TinyGPT -> fallback
+    - <groq id>   : force ce modèle Groq
+    - "tinygpt"   : force le modèle maison from scratch
+    - "fallback"  : synthèse déterministe (sans IA)
+    """
+    model = (model or "auto").lower()
+    groq_key = settings.groq_api_key
+
+    def _try_groq(groq_model: str) -> Optional[str]:
+        if groq_key and tweets:
+            try:
+                answer = _generate_with_groq(prompt, groq_key, groq_model)
+                if answer and len(answer) > 30:
+                    logger.info(f"[RAG] Réponse générée par Groq/{groq_model} ({len(answer)} chars)")
+                    return answer
+            except Exception as e:
+                logger.warning(f"[RAG] Groq/{groq_model} indisponible: {e}")
+        return None
+
+    # Choix explicite
+    if model == "fallback":
+        return _generate_fallback_answer(question, tweets)
+    if model == "tinygpt":
+        return _generate_with_tinygpt(prompt) or _generate_fallback_answer(question, tweets)
+    if model == "groq":
+        return _try_groq("llama-3.1-8b-instant") or _generate_with_tinygpt(prompt) or _generate_fallback_answer(question, tweets)
+    if model in GROQ_MODELS:
+        return _try_groq(model) or _generate_with_tinygpt(prompt) or _generate_fallback_answer(question, tweets)
+
+    # Auto (défaut)
+    return (
+        _try_groq("llama-3.1-8b-instant")
+        or _generate_with_tinygpt(prompt)
+        or _generate_fallback_answer(question, tweets)
+    )
+
+
+def _generate_with_groq(prompt: str, api_key: str, model: str = "llama-3.1-8b-instant") -> str:
     """
     Appelle l'API Groq (LLaMA 3) pour générer une réponse naturelle.
     Synchrone pour compatibilité avec le pipeline.
@@ -1379,7 +1406,7 @@ def _generate_with_groq(prompt: str, api_key: str) -> str:
             "Content-Type": "application/json",
         },
         json={
-            "model": "llama-3.1-8b-instant",
+            "model": model or "llama-3.1-8b-instant",
             "messages": [
                 {
                     "role": "system",
@@ -1610,6 +1637,7 @@ async def chat(
     target_id: Optional[int] = None,
     enable_mcp: bool = True,
     user_id: Optional[int] = None,
+    model: str = "auto",
 ) -> Dict[str, Any]:
     """
     Pipeline RAG complet FUSIONNÉ :
@@ -1840,7 +1868,7 @@ async def chat(
     # ÉTAPE 7 : GENERATE (Groq / TinyGPT / fallback)
     # ============================================
     gen_start = time.time()
-    answer = generate_answer_from_scratch(question, tweets, prompt)
+    answer = generate_answer_from_scratch(question, tweets, prompt, model=model)
     gen_time = time.time() - gen_start
 
     # Si des cibles étaient nouvelles (aucune donnée en base), on le signale dans le chat
