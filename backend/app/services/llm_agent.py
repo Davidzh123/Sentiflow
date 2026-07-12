@@ -24,7 +24,7 @@ from sqlalchemy.orm import Session
 from backend.app.models.generated_dashboard import GeneratedDashboard
 from backend.app.models.target import Target, TargetType
 from backend.app.models.tweet import Tweet, VALID_SENTIMENTS
-from backend.app.services.llm_from_scratch import get_planner
+from backend.app.services.llm_from_scratch import get_planner, question_requests_collection
 from backend.app.services.local_llm import ask_local_llm
 from backend.app.services.twitter import parse_tweet_datetime, twitter_service
 
@@ -356,15 +356,18 @@ async def collect_for_target(
 
 
 def _question_requests_historical_collection(question: str) -> bool:
-    normalized = (question or "").lower()
+    normalized = strip_accents(question or "").lower()
     return bool(
-        re.search(r"\b\d+\s*(j|jour|jours|semaine|semaines|mois)\b", normalized)
+        re.search(
+            r"\b\d+\s*(?:derniers?|dernieres?)?\s*"
+            r"(j|jour|jours|semaine|semaines|mois)\b",
+            normalized,
+        )
         or any(
             marker in normalized
             for marker in (
                 "derniers jours",
                 "dernieres jours",
-                "dernières jours",
                 "sur plusieurs jours",
                 "sur la semaine",
                 "cette semaine",
@@ -510,7 +513,12 @@ def _format_execution_summary(execution_log: list[dict[str, Any]]) -> str:
                 f"{step.get('duplicates', 0)} doublons"
             )
         elif action == "skip_collect":
-            lines.append(f"- collecte {target}: non relancée, données déjà disponibles")
+            reason = step.get("reason")
+            if reason == "collection_not_allowed":
+                lines.append(f"- collecte {target}: non autorisée par l'offre actuelle")
+            else:
+                lines.append(f"- collecte {target}: non demandée, tweets existants réutilisés")
+
         elif action == "analyze_sentiments":
             lines.append(f"- analyse {target}: {step.get('analyzed', 0)} tweets analysés")
         elif action == "skip_analyze":
@@ -532,6 +540,24 @@ async def run_sentiflow_agent(
     planner = get_planner()
     plan = planner.plan(question)
     plan = apply_target_guardrail(plan, question)
+    explicit_collection_requested = question_requests_collection(question)
+
+    # Dernier garde-fou au niveau de l'exécuteur : même si un ancien checkpoint
+    # renvoie un mauvais plan, une demande explicite de collecte doit déclencher
+    # une vraie collecte.
+    if explicit_collection_requested:
+        plan["force_refresh"] = True
+        if "collect_tweets" not in plan.get("actions", []):
+            plan["actions"] = [
+                "create_missing_targets",
+                "collect_tweets",
+                "analyze_sentiments",
+                "summarize",
+                "generate_dashboard",
+            ]
+        if plan.get("intent") not in {"collect_analyze_summarize", "collect_analyze_examples"}:
+            plan["intent"] = "collect_analyze_summarize"
+        plan["sentiment_filter"] = None
 
     if days is not None:
         plan["days"] = max(1, min(90, int(days)))
@@ -599,12 +625,10 @@ async def run_sentiflow_agent(
 
     for target in selected_targets:
         before = count_tweets(db, target.id)
-        should_collect = (
-            allow_auto_collect
-            and (
-                before["total"] == 0
-                or plan.get("force_refresh", False)
-            )
+        collection_allowed = allow_auto_collect or explicit_collection_requested
+        should_collect = collection_allowed and (
+            before["total"] == 0
+            or plan.get("force_refresh", False)
         )
 
         if should_collect:
@@ -622,7 +646,11 @@ async def run_sentiflow_agent(
                 "action": "skip_collect",
                 "target": target.name,
                 "target_id": target.id,
-                "reason": "tweets déjà présents ou collecte non demandée",
+                "reason": (
+                    "collection_not_allowed"
+                    if not collection_allowed
+                    else "collection_not_requested"
+                ),
             })
 
         after_collect = count_tweets(db, target.id)

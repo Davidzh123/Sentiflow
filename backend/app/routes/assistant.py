@@ -38,7 +38,10 @@ def _get_user_id_from_request(request: FastAPIRequest, db: Session) -> int:
 AGENT_INTENTS = {"collect_analyze_summarize", "collect_analyze_examples"}
 
 # Mots-clés qui forcent le mode agent (même si le planner se trompe)
-AGENT_KEYWORDS = {"récupère", "recupere", "collecte", "collecter", "ajoute", "crée", "cree"}
+AGENT_KEYWORDS = {
+    "récupère", "recupere", "collecte", "collecter", "ajoute", "crée", "cree",
+    "nouveau tweet", "nouveaux tweets", "derniers tweets",
+}
 
 # Mots-clés qui déclenchent une requête BDD
 DB_KEYWORDS = {"mes cibles", "ma base", "combien de tweets", "combien de tweet", "nombre de tweet",
@@ -155,6 +158,17 @@ async def assistant_chat(
             elif any(kw in q_lower for kw in DB_KEYWORDS):
                 mode = "database"
 
+    from backend.app.services.llm_from_scratch import question_requests_collection
+
+    q_lower = question.lower()
+    manual_collection_requested = question_requests_collection(question) or bool(
+        plan and (
+            plan.get("force_refresh", False)
+            or "collect_tweets" in (plan.get("actions") or [])
+        )
+    )
+
+
     # ============================================
     # MODE DATABASE : interroge la BDD directement (filtré par user)
     # ============================================
@@ -258,7 +272,7 @@ async def assistant_chat(
                 user_id=user_id,
                 question=question,
                 generate_dashboard=True,
-                allow_auto_collect=can_auto_collect,
+                allow_auto_collect=can_auto_collect or manual_collection_requested,
                 allow_auto_analyze=True,
             )
 

@@ -16,7 +16,9 @@ function formatExecutionLog(logs = []) {
         case 'collect_tweets':
           return `📥 Collecte ${target} : ${step.saved || 0} nouveaux tweets, ${step.duplicates || 0} doublons`;
         case 'skip_collect':
-          return `⏭️ Collecte ${target} non relancée : données déjà disponibles`;
+          return step.reason === 'collection_not_allowed'
+            ? `⛔ Collecte ${target} non autorisée par l'offre actuelle`
+            : `⏭️ Collecte ${target} non demandée : données existantes réutilisées`;
         case 'analyze_sentiments':
           return `🤖 Analyse ${target} : ${step.analyzed || 0} tweets analysés`;
         case 'skip_analyze':

@@ -32,6 +32,8 @@ DEFAULT_CHECKPOINT_PATH = Path(
     os.getenv("SENTIFLOW_LLM_CHECKPOINT", "/app/backend/app/ml/sentiflow_tiny_llm.pt")
 )
 
+PLANNER_GUARDRAIL_VERSION = "semantic_guardrails_v3"
+
 ALLOWED_ACTIONS = {
     "create_missing_targets",
     "collect_tweets",
@@ -115,7 +117,13 @@ def extract_mentions(text: str) -> list[str]:
 
 def extract_days(text: str, default: int = 7) -> int:
     q = normalize(text)
-    match = re.search(r"(\d+)\s*(jour|jours|j|day|days)", q)
+    # Accepte notamment : "2 jours", "les 2 derniers jours" et la
+    # formulation fréquente mais grammaticalement approximative
+    # "des 2 dernières jours".
+    match = re.search(
+        r"(\d+)\s*(?:derniers?|dernieres?)?\s*(jour|jours|j|day|days)",
+        q,
+    )
     if match:
         return max(1, min(90, int(match.group(1))))
     word_numbers = {
@@ -137,7 +145,7 @@ def extract_days(text: str, default: int = 7) -> int:
     for word, value in word_numbers.items():
         if re.search(rf"\b{word}\s+(jour|jours|j|day|days)\b", q):
             return value
-        if re.search(rf"\b{word}\s+derniers?\s+jours?\b", q):
+        if re.search(rf"\b{word}\s+(?:derniers?|dernieres?)\s+jours?\b", q):
             return value
     if "mois" in q:
         return 30
@@ -146,6 +154,48 @@ def extract_days(text: str, default: int = 7) -> int:
     if "hier" in q or "24h" in q:
         return 1
     return default
+
+
+def question_requests_collection(text: str) -> bool:
+    """Détecte une demande explicite de collecte sans dépendre du checkpoint LLM."""
+    q = normalize(text)
+    collect_negated = any(
+        phrase in q
+        for phrase in [
+            "sans refaire la collecte",
+            "sans collecte",
+            "ne collecte pas",
+            "pas de collecte",
+            "sans recollecter",
+            "sans recuperer",
+        ]
+    )
+    if collect_negated:
+        return False
+
+    action_markers = [
+        "recupere",
+        "collecte",
+        "collecter",
+        "nouveau tweet",
+        "nouveaux tweets",
+        "derniers tweets",
+        "twitter",
+        "tweets avec",
+        "ajoute",
+        "cree",
+    ]
+    if any(marker in q for marker in action_markers):
+        return True
+
+    return bool(
+        re.search(
+            r"\b(\d+|un|une|deux|trois|quatre|cinq|six|sept|huit|neuf|dix|quatorze|quinze|trente)\s+"
+            r"(?:derniers?|dernieres?)?\s*(jour|jours)\b",
+            q,
+        )
+        or any(marker in q for marker in ["derniers jours", "dernieres jours", "depuis"])
+    )
 
 
 def detect_sentiment_filter(text: str) -> str | None:
@@ -206,14 +256,27 @@ def _safe_json_from_text(text: str) -> dict[str, Any] | None:
 
 
 def validate_plan(raw_plan: dict[str, Any], question: str) -> dict[str, Any]:
+    """Valide le JSON du Transformer et applique des garde-fous déterministes.
+
+    Le checkpoint peut produire un JSON syntaxiquement valide mais sémantiquement faux
+    (mauvaise intention, période inventée, filtre de sentiment halluciné). Les éléments
+    explicitement présents dans la question utilisateur sont donc prioritaires.
+    """
     fallback = fallback_plan(question)
     if not isinstance(raw_plan, dict):
         return fallback
+
+    corrections: dict[str, Any] = {}
 
     targets = raw_plan.get("targets")
     if not isinstance(targets, list):
         targets = fallback["targets"]
     targets = [str(t).strip().lower() for t in targets if str(t).strip()]
+
+    explicit_targets = extract_mentions(question)
+    if explicit_targets and targets != explicit_targets:
+        corrections["targets"] = {"from": targets, "to": explicit_targets}
+        targets = explicit_targets
 
     actions = raw_plan.get("actions")
     if not isinstance(actions, list):
@@ -222,35 +285,64 @@ def validate_plan(raw_plan: dict[str, Any], question: str) -> dict[str, Any]:
     if not actions:
         actions = fallback["actions"]
 
-    days = raw_plan.get("days", fallback["days"])
-    try:
-        days = max(1, min(90, int(days)))
-    except Exception:
-        days = fallback["days"]
-
+    intent = str(raw_plan.get("intent", fallback["intent"]))
     dashboard = bool(raw_plan.get("dashboard", fallback["dashboard"]))
+    force_refresh = bool(raw_plan.get("force_refresh", fallback["force_refresh"]))
+
+    # Une demande explicite de collecte ne doit jamais être transformée en simple
+    # consultation d'exemples ou de timeline par le modèle.
+    if fallback.get("force_refresh"):
+        if intent != fallback["intent"] or actions != fallback["actions"]:
+            corrections["collection_plan"] = {
+                "intent_from": intent,
+                "intent_to": fallback["intent"],
+                "actions_from": actions,
+                "actions_to": fallback["actions"],
+            }
+        intent = fallback["intent"]
+        actions = list(fallback["actions"])
+        dashboard = bool(fallback["dashboard"])
+        force_refresh = True
+
+    # La période et le filtre sont simples à extraire sans LLM : ne jamais garder
+    # une valeur inventée par le checkpoint.
+    days = fallback["days"]
+    raw_days = raw_plan.get("days")
+    try:
+        normalized_raw_days = max(1, min(90, int(raw_days)))
+    except Exception:
+        normalized_raw_days = None
+    if normalized_raw_days != days:
+        corrections["days"] = {"from": raw_days, "to": days}
+
+    sentiment_filter = fallback.get("sentiment_filter")
+    raw_sentiment = raw_plan.get("sentiment_filter")
+    if raw_sentiment != sentiment_filter:
+        corrections["sentiment_filter"] = {"from": raw_sentiment, "to": sentiment_filter}
+
     if "generate_dashboard" in actions:
         dashboard = True
 
-    sentiment_filter = raw_plan.get("sentiment_filter", fallback.get("sentiment_filter"))
-    if sentiment_filter is not None:
-        sentiment_filter = str(sentiment_filter)
+    target_types = {
+        target: ("account" if target.startswith("@") else "hashtag")
+        for target in targets
+    }
 
-    target_types = {}
-    for target in targets:
-        target_types[target] = "account" if target.startswith("@") else "hashtag"
-
-    return {
-        "intent": str(raw_plan.get("intent", fallback["intent"])),
+    result = {
+        "intent": intent,
         "targets": targets,
         "target_types": target_types,
         "days": days,
         "actions": actions,
         "dashboard": dashboard,
         "sentiment_filter": sentiment_filter,
-        "force_refresh": bool(raw_plan.get("force_refresh", fallback["force_refresh"])),
+        "force_refresh": force_refresh,
         "planner_source": raw_plan.get("planner_source", "tiny_transformer"),
+        "planner_guardrail_version": PLANNER_GUARDRAIL_VERSION,
     }
+    if corrections:
+        result["semantic_guardrails"] = corrections
+    return result
 
 
 def fallback_plan(question: str) -> dict[str, Any]:
@@ -259,30 +351,19 @@ def fallback_plan(question: str) -> dict[str, Any]:
     days = extract_days(question)
     sentiment_filter = detect_sentiment_filter(question)
 
-    collect_negated = any(phrase in q for phrase in [
-        "sans refaire la collecte", "sans collecte", "ne collecte pas",
-        "pas de collecte", "sans recollecter", "sans recuperer"
-    ])
-
-    wants_collect = (not collect_negated) and any(
-        word in q
-        for word in [
-            "recupere", "recupere", "collecte", "collecter", "nouveaux", "nouveau",
-            "twitter", "tweets avec", "ajoute", "cree", "cree",
-        ]
-    )
-    wants_recent_collection = (not collect_negated) and bool(
-        re.search(
-            r"\b(\d+|un|une|deux|trois|quatre|cinq|six|sept|huit|neuf|dix|quatorze|quinze|trente)\s+"
-            r"(jour|jours|derniers?\s+jours?)\b",
-            q,
-        )
-        or any(marker in q for marker in ["derniers jours", "dernieres jours", "dernières jours", "depuis"])
-    )
-    wants_collect = wants_collect or wants_recent_collection
+    wants_collect = question_requests_collection(question)
     wants_compare = any(word in q for word in ["compare", "comparaison", "versus", "vs", "entre"])
     wants_timeline = any(word in q for word in ["evolution", "tendance", "temps", "temporel", "augmente", "baisse"])
-    wants_examples = any(word in q for word in ["exemple", "tweets", "montre", "affiche"])
+    # Le mot générique "tweets" ne signifie pas que l'utilisateur demande des
+    # exemples : toutes les collectes parlent de tweets.
+    wants_examples = any(
+        marker in q
+        for marker in [
+            "exemple", "representatif", "representatifs",
+            "montre les tweets", "affiche les tweets",
+            "tweets les plus", "quelques tweets",
+        ]
+    )
     wants_dashboard = any(word in q for word in ["dashboard", "graphique", "graphiques", "visualisation", "tableau de bord"])
     wants_database = any(word in q for word in [
         "mes cibles", "ma base", "combien de tweets", "quelles cibles",
@@ -298,14 +379,27 @@ def fallback_plan(question: str) -> dict[str, Any]:
     elif wants_database:
         intent = "query_database"
         actions = ["query_database"]
+    elif wants_collect:
+        # Une collecte standard fournit une synthèse et un dashboard. Les exemples
+        # ne sont utilisés que lorsqu'ils sont explicitement demandés.
+        if wants_examples:
+            intent = "collect_analyze_examples"
+            actions = [
+                "create_missing_targets", "collect_tweets",
+                "analyze_sentiments", "get_examples", "generate_dashboard",
+            ]
+        else:
+            intent = "collect_analyze_summarize"
+            actions = [
+                "create_missing_targets", "collect_tweets",
+                "analyze_sentiments", "summarize", "generate_dashboard",
+            ]
     elif wants_timeline:
         intent = "timeline"
         actions = ["create_missing_targets", "analyze_sentiments", "get_timeline", "generate_dashboard"]
-    elif wants_examples or wants_collect:
-        intent = "collect_analyze_examples" if wants_collect else "examples"
-        actions = ["create_missing_targets", "collect_tweets", "analyze_sentiments", "get_examples"]
-        if wants_dashboard:
-            actions.append("generate_dashboard")
+    elif wants_examples:
+        intent = "examples"
+        actions = ["create_missing_targets", "analyze_sentiments", "get_examples"]
     elif wants_dashboard:
         intent = "dashboard"
         actions = ["create_missing_targets", "analyze_sentiments", "summarize", "generate_dashboard"]
@@ -313,7 +407,10 @@ def fallback_plan(question: str) -> dict[str, Any]:
         intent = "summarize"
         actions = ["analyze_sentiments", "summarize", "generate_dashboard"]
 
-    dashboard = wants_dashboard or intent in {"summarize", "compare", "timeline", "dashboard"}
+    dashboard = wants_dashboard or intent in {
+        "collect_analyze_summarize", "collect_analyze_examples",
+        "summarize", "compare", "timeline", "dashboard",
+    }
     target_types = {target: "account" if target.startswith("@") else "hashtag" for target in targets}
 
     return {
@@ -402,6 +499,7 @@ class SentiflowPlanner:
             "checkpoint_loaded": self.loaded_checkpoint,
             "checkpoint_path": str(self.checkpoint_path),
             "fallback_enabled": True,
+            "guardrail_version": PLANNER_GUARDRAIL_VERSION,
             "vocab_size": self.tokenizer.vocab_size,
         }
 

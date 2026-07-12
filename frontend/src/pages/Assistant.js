@@ -22,7 +22,9 @@ function formatExecutionLog(logs = []) {
       case 'create_target': return `Cible creee : ${target}`;
       case 'reuse_target': return `Cible existante : ${target}`;
       case 'collect_tweets': return `Collecte ${target} : ${step.saved || 0} nouveaux, ${step.duplicates || 0} doublons`;
-      case 'skip_collect': return `Collecte ${target} : donnees deja disponibles`;
+      case 'skip_collect': return step.reason === 'collection_not_allowed'
+        ? `Collecte ${target} : non autorisée par l'offre actuelle`
+        : `Collecte ${target} : non demandée, données existantes réutilisées`;
       case 'analyze_sentiments': return `Analyse ${target} : ${step.analyzed || 0} tweets`;
       case 'skip_analyze': return `Analyse ${target} : rien de nouveau`;
       default: return `${step.action || 'action'} ${target}`;
