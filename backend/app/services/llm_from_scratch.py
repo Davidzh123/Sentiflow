@@ -89,7 +89,7 @@ if nn is not None:
             x = self.ln_f(x)
             return self.lm_head(x)
 else:
-    class TinyGPT:  # type: ignore
+    class TinyGPT:  
         pass
 
 
