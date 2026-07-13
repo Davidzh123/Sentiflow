@@ -171,7 +171,7 @@ class TwitterService:
                 }
 
             page_tweets = extract_tweets(data)
-            if len(page_tweets) >= 15 and window_end - window_start > min_window:
+            if len(page_tweets) >= 12 and window_end - window_start > min_window:
                 midpoint = window_start + (window_end - window_start) / 2
                 windows.append((window_start, midpoint))
                 windows.append((midpoint, window_end))

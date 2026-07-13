@@ -1,12 +1,13 @@
 from __future__ import annotations
 
-from collections import Counter
-from datetime import datetime
+from collections import Counter, defaultdict
+from datetime import datetime, timedelta
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import Response
 from pydantic import BaseModel, Field
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from backend.app.database import get_db
@@ -21,6 +22,44 @@ router = APIRouter(prefix="/dashboards", tags=["Dashboards générés"])
 
 POSITIVE = {"joie", "amour"}
 NEGATIVE = {"colere", "tristesse", "peur"}
+
+
+def _dashboard_period(dashboard: GeneratedDashboard) -> tuple[datetime | None, datetime]:
+    """Retourne la période réellement associée au plan du dashboard."""
+    end = dashboard.created_at or datetime.utcnow()
+    plan = dashboard.plan_json or {}
+    try:
+        days = int(plan.get("days") or 0)
+    except (TypeError, ValueError):
+        days = 0
+    days = max(0, min(days, 365))
+    start = end - timedelta(days=days) if days else None
+    return start, end
+
+
+def _tweet_date(tweet: Tweet) -> datetime | None:
+    return tweet.tweet_created_at or getattr(tweet, "collected_at", None) or tweet.analyzed_at
+
+
+def _representative_tweets(tweets: list[Tweet], limit: int = 4) -> list[Tweet]:
+    """Diversifie les exemples : un tweet fort par sentiment, puis complète par confiance."""
+    ordered = sorted(tweets, key=lambda item: float(item.confidence or 0), reverse=True)
+    selected: list[Tweet] = []
+    seen_sentiments: set[str] = set()
+    for tweet in ordered:
+        sentiment = str(tweet.sentiment or "inconnu")
+        if sentiment in seen_sentiments:
+            continue
+        selected.append(tweet)
+        seen_sentiments.add(sentiment)
+        if len(selected) >= limit:
+            return selected
+    for tweet in ordered:
+        if tweet not in selected:
+            selected.append(tweet)
+        if len(selected) >= limit:
+            break
+    return selected
 
 
 class GeneratedDashboardCreate(BaseModel):
@@ -200,9 +239,10 @@ def export_dashboard_pdf(
     current_user: User = Depends(get_current_user),
 ):
     """
-    Exporte un dashboard IA en PDF : un rapport "dashboard de tweets"
-    (KPIs + répartition des sentiments + tweets représentatifs + synthèse).
-    Construit à partir des tweets réels en base (robuste quel que soit le config_json).
+    Exporte un rapport analytique complet et cohérent avec la période du dashboard.
+
+    Contrairement à l'ancienne version, l'export ne mélange plus automatiquement
+    tous les tweets historiques d'une cible avec une requête portant sur quelques jours.
     """
     if current_user.is_admin:
         dashboard = db.query(GeneratedDashboard).filter(GeneratedDashboard.id == dashboard_id).first()
@@ -214,45 +254,92 @@ def export_dashboard_pdf(
     if not dashboard:
         raise HTTPException(status_code=404, detail="Dashboard introuvable")
 
-    target_ids = dashboard.target_ids or []
-
-    # Construire la répartition par cible à partir des tweets en base
+    target_ids = [int(value) for value in (dashboard.target_ids or []) if value is not None]
+    period_start, period_end = _dashboard_period(dashboard)
     targets_data: list[dict[str, Any]] = []
     representative: list[dict[str, Any]] = []
 
     if target_ids:
-        from backend.app.models.target import Target
+        from backend.app.services.dashboard_builder import extract_relevant_keywords
+
         targets = db.query(Target).filter(Target.id.in_(target_ids)).all()
-        for tgt in targets:
-            tws = (
-                db.query(Tweet)
-                .filter(Tweet.target_id == tgt.id, Tweet.sentiment.isnot(None))
-                .all()
+        date_expr = func.coalesce(Tweet.tweet_created_at, Tweet.collected_at, Tweet.analyzed_at)
+
+        for target in targets:
+            query = db.query(Tweet).filter(
+                Tweet.target_id == target.id,
+                Tweet.sentiment.isnot(None),
             )
-            if not tws:
+            if period_start is not None:
+                # Petite marge après la création pour absorber un commit exécuté au même instant.
+                query = query.filter(
+                    date_expr >= period_start,
+                    date_expr <= period_end + timedelta(minutes=5),
+                )
+            tweets = query.all()
+            if not tweets:
                 continue
-            counts = Counter(t.sentiment for t in tws)
+
+            counts = Counter(str(tweet.sentiment or "inconnu") for tweet in tweets)
             total = sum(counts.values())
-            dist = {s: c / total for s, c in counts.items()}
-            targets_data.append({
-                "name": tgt.name,
-                "total": total,
-                "distribution": dist,
-                "positive": sum(counts.get(s, 0) for s in POSITIVE),
-                "negative": sum(counts.get(s, 0) for s in NEGATIVE),
-            })
-            # tweets représentatifs : meilleure confiance
-            for t in sorted(tws, key=lambda x: float(x.confidence or 0), reverse=True)[:4]:
-                representative.append({
-                    "author": t.author_username or "?",
-                    "sentiment": t.sentiment,
-                    "confidence": float(t.confidence or 0),
-                    "text": t.text or "",
+            distribution = {sentiment: count / total for sentiment, count in counts.items()}
+            positive = sum(counts.get(sentiment, 0) for sentiment in POSITIVE)
+            negative = sum(counts.get(sentiment, 0) for sentiment in NEGATIVE)
+            confidences = [float(tweet.confidence) for tweet in tweets if tweet.confidence is not None]
+            average_confidence = sum(confidences) / len(confidences) if confidences else 0
+            net_score = (positive - negative) / total if total else 0
+
+            by_day: dict[str, Counter] = defaultdict(Counter)
+            for tweet in tweets:
+                date = _tweet_date(tweet)
+                if not date:
+                    continue
+                by_day[date.strftime("%Y-%m-%d")][str(tweet.sentiment or "inconnu")] += 1
+            timeline = []
+            for day in sorted(by_day):
+                day_counts = by_day[day]
+                day_total = sum(day_counts.values())
+                day_positive = sum(day_counts.get(sentiment, 0) for sentiment in POSITIVE)
+                day_negative = sum(day_counts.get(sentiment, 0) for sentiment in NEGATIVE)
+                timeline.append({
+                    "date": day,
+                    "net_sentiment_score": (day_positive - day_negative) / day_total if day_total else 0,
                 })
 
-    representative.sort(key=lambda x: x["confidence"], reverse=True)
+            targets_data.append({
+                "name": target.name,
+                "total": total,
+                "distribution": distribution,
+                "positive": positive,
+                "negative": negative,
+                "dominant_sentiment": counts.most_common(1)[0][0] if counts else "inconnu",
+                "average_confidence": average_confidence,
+                "net_sentiment_score": net_score,
+                "timeline": timeline,
+                "keywords": extract_relevant_keywords(tweets, target_name=target.name, limit=12),
+            })
+
+            for tweet in _representative_tweets(tweets, limit=4):
+                representative.append({
+                    "author": tweet.author_username or "?",
+                    "sentiment": tweet.sentiment or "inconnu",
+                    "confidence": float(tweet.confidence or 0),
+                    "text": tweet.text or "",
+                    "target": target.name,
+                    "date": _tweet_date(tweet).isoformat() if _tweet_date(tweet) else None,
+                })
+
+    representative.sort(key=lambda item: float(item.get("confidence", 0)), reverse=True)
+
+    collection_note = None
+    if period_start is not None and not targets_data:
+        collection_note = (
+            "Aucun tweet analysé n'a été trouvé dans la période demandée. "
+            "Le rapport n'inclut pas les anciens tweets afin de ne pas fausser les résultats."
+        )
 
     from backend.app.services.pdf_generator import generate_report_pdf
+
     pdf_bytes = generate_report_pdf(
         title=dashboard.title or "Dashboard IA",
         question=dashboard.question or "",
@@ -260,13 +347,22 @@ def export_dashboard_pdf(
         targets=targets_data,
         tweets=representative,
         synthesis=dashboard.answer,
+        period_start=period_start,
+        period_end=period_end,
+        collection_note=collection_note,
     )
     if pdf_bytes is None:
         raise HTTPException(status_code=500, detail="Generation PDF indisponible (fpdf2 non installe)")
 
     from backend.app.services.notifications import notify
-    notify(db, current_user.id, "pdf_export", "Export PDF",
-           f"Le rapport « {dashboard.title} » a été exporté en PDF.")
+
+    notify(
+        db,
+        current_user.id,
+        "pdf_export",
+        "Export PDF",
+        f"Le rapport « {dashboard.title} » a été exporté en PDF.",
+    )
 
     filename = f"rapport_dashboard_{dashboard.id}.pdf"
     return Response(

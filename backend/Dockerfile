@@ -1,5 +1,5 @@
 # Stage 1: Build le frontend React
-FROM node:18-alpine AS frontend-build
+FROM node:20-alpine AS frontend-build
 WORKDIR /frontend
 COPY frontend/package*.json ./
 RUN npm ci
@@ -15,6 +15,7 @@ WORKDIR /app
 RUN apt-get update && apt-get install -y \
     gcc \
     libpq-dev \
+    fonts-dejavu-core \
     && rm -rf /var/lib/apt/lists/*
 
 COPY pyproject.toml .
